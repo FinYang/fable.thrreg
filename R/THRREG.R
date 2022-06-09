@@ -17,19 +17,21 @@ train_thrreg <- function(.data, specials, ...){
   delta <- specials$delta[[1]]
   xreg <- specials$xreg[[1]]
 
-  # kernel <- with(list(self = list(data = bitcoin)),
-  #                (function(var = NULL, kernel = epaker,
-  #                          # n = 2^8,
-  #                          min_points = 5, bw = sd(var)/50){
-  #                  var_name <- enexpr(var)
-  #                  bw <- enexpr(bw)
-  #                  if(!is.null(var)){
-  #                    var <- select(as_tibble(self$data), !!var_name) %>%
-  #                      unlist() %>%
-  #                      unname()
-  #                  }
-  #                  as.list(environment())
-  #                })(fee))
+  # delta <- TRUE
+  # kernel <- with(
+  #   list(self = list(data = bitcoin)),
+  #   (function(var = NULL, kernel = epaker,
+  #             # n = 2^8,
+  #             min_points = 15, bw = sd(var)/50){
+  #     var_name <- rlang::enexpr(var)
+  #     bw <- rlang::enexpr(bw)
+  #     if(rlang::as_string(var_name)!="NULL"){
+  #       var <- dplyr::select(as_tibble(self$data), !!var_name) %>%
+  #         unlist() %>%
+  #         unname()
+  #     }
+  #     as.list(environment())
+  #   })(fee))
 
   kernel <- specials$gamma[[1]]
   kernel_est <- !is.null(kernel$var)
@@ -73,10 +75,16 @@ train_thrreg <- function(.data, specials, ...){
   }
 
 
-  get_ssr <- function(gamma, fm, weights = NULL){
+  get_ssr <- function(gamma, fm, weights = NULL, data = model_df){
     fm <- eval(enexpr(fm))
     weights <- enexpr(weights)
-    fit <- eval(expr(lm(!!fm, data = model_df, model = FALSE, weights = !!weights)))
+    data <- enexpr(data)
+    fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
+    if(anyNA(coef(fit))){
+      if(anyNA(coef(fit)[-3]))
+        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
+      return(Inf)
+    }
     sum(resid(fit)^2)
   }
 
@@ -102,13 +110,17 @@ train_thrreg <- function(.data, specials, ...){
     gamma_path <- list()
 
     # 1
-    gamma_grids <- lapply(kernel_weight, function(w) na.omit(y_1[w>0]))
+    gamma_grids <- lapply(kernel_weight, function(w) na.omit(unique(abs(y_1[w>0]))))
 
-    # which_min <- pbapply::pblapply(seq_along(gamma_grids), function(i){
-    which_min <- lapply(seq_along(gamma_grids), function(i){
+    which_min <- pbapply::pblapply(seq_along(gamma_grids), function(i){
+      # which_min <- lapply(seq_along(gamma_grids), function(i){
       i <- enexpr(i)
-      eval(expr(sapply(gamma_grids[[!!i]], get_ssr, fm = get_full_fm(gamma),
-                       weights = kernel_weight[[!!i]])))
+      eval(expr(sapply(
+        gamma_grids[[!!i]], get_ssr,
+        fm = get_full_fm(gamma),
+        weights = kernel_weight[[!!i]][kernel_weight[[!!i]]>0],
+        data = model_df[kernel_weight[[!!i]]>0,])
+      ))
     }) %>%
       sapply(which.min)
 
@@ -116,12 +128,12 @@ train_thrreg <- function(.data, specials, ...){
 
 
     model_df_k <- tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
-      inner_join(model_df, by = as_string(kernel$var_name)) %>%
-      drop_na(!!sym(resp_1))
+      dplyr::inner_join(model_df, by = as_string(kernel$var_name)) %>%
+      tidyr::drop_na(!!sym(resp_1))
 
 
 
-    for(iter in 1:5){
+    for(iter in seq_len(kernel$max_iter)){
       # !is.na(model_df_k$.gamma)
       # 2
 
@@ -130,41 +142,44 @@ train_thrreg <- function(.data, specials, ...){
       coef_k <- coef_path[[iter]] <- coef(model_k)
 
       # 3
+      model_frame <- model.frame(model_k)
+
+      all_x_name <- intersect(
+        names(coef_k),
+        colnames(model_frame)
+      )
+      other_x_name <- all_x_name[!grepl("\\.gamma", all_x_name)]
+      other_x_value <- model_frame[,other_x_name] %>%
+        mapply(function(vec, coef) vec*coef,
+               vec = ., coef = coef_k[other_x_name])
+      resp_value <- getElement(model_frame, resp)
+      resp_1_value <- getElement(model_frame,resp_1)
+      item_before <- resp_value -
+        coef_k[["(Intercept)"]] -
+        rowSums(other_x_value)
+      item_times <- resp_1_value *
+        coef_k[all_x_name[grepl("\\.gamma", all_x_name)]]
       find_multiplier_c <- function(gamma){
-        model_frame <- model.frame(model_k)
-
-        all_x_name <- intersect(
-          names(coef_k),
-          colnames(model_frame)
-        )
-        other_x_name <- all_x_name[!grepl("\\.gamma", all_x_name)]
-        other_x_value <- model_frame %>%
-          select(all_of(other_x_name)) %>%
-          as.list() %>%
-          mapply(function(vec, coef) vec*coef,
-                 vec = ., coef = coef_k[other_x_name])
-
-        (pull(model_frame, !!sym(resp)) -
-            coef_k[["(Intercept)"]] -
-            rowSums(other_x_value) -
-            pull(model_frame, !!sym(resp_1)) *
-            coef_k[all_x_name[grepl("\\.gamma", all_x_name)]] *
-            (pull(model_frame, !!sym(resp_1)) < gamma))^2
+        (item_before -
+           item_times *
+           (resp_1_value < gamma))^2
       }
 
-
-      res_c <- lapply(kernel_weight, function(weights){
-        # res_c <- pbapply::pblapply(kernel_weight, function(weights){
-        optimise(function(gamma){
-          sum(find_multiplier_c(gamma) * weights[c(FALSE, (!which_drop))])
-        }, range(kernel$var))
+      # res_c <- lapply(kernel_weight, function(weights){
+      gamma_res <- res_c <- sapply(kernel_weight, function(weights){
+        idx <- sapply(unique(kernel$var[weights>0]),
+                      function(gamma){
+                        sum(find_multiplier_c(gamma) * weights[c(FALSE, (!which_drop))])
+                      }) %>%
+          which.min()
+        unique(kernel$var[weights>0])[idx]
       })
 
-      gamma_res <- sapply(res_c, function(x) x$minimum)
+      # gamma_res <- sapply(res_c, function(x) x$minimum)
       gamma_path[[iter]] <- tibble(!!sym(kernel$var_name):=kernel_grid, .gamma = gamma_res)
       model_df_k <- model_df_k %>%
         select(-.gamma) %>%
-        left_join(gamma_path[[iter]], by = as_string(kernel$var_name))
+        dplyr::left_join(gamma_path[[iter]], by = as_string(kernel$var_name))
 
       if(iter>1){
         if(norm(coef_path[[iter]] - coef_path[[iter-1]], "2")< 1){
@@ -230,7 +245,7 @@ specials_thrreg <- new_specials(
   },
   gamma = function(var = NULL, kernel = epaker,
                    # n = 2^8,
-                   min_points = NCOL(self$data) + 5, bw = sd(var)/10){
+                   min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)
     if(!is.null(var)){
