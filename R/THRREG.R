@@ -5,7 +5,7 @@
 
 train_thrreg <- function(.data, specials, ...){
   if (length(tsibble::measured_vars(.data)) > 1) {
-    abort("Only univariate response is supported by thrreg.")
+    stop("Only univariate response is supported by thrreg.")
   }
 
   # .data <- bitcoin %>%
@@ -21,7 +21,7 @@ train_thrreg <- function(.data, specials, ...){
   #             min_points = 30, bw = sd(var)/25, max_iter = 10){
   #     var_name <- rlang::enexpr(var)
   #     bw <- rlang::enexpr(bw)
-  #     if(rlang::as_string(var_name)!="NULL"){
+  #     if(!is.null(var_name)){
   #       var <- dplyr::select(as_tibble(self$data), !!var_name) %>%
   #         unlist() %>%
   #         unname()
@@ -110,7 +110,7 @@ train_thrreg <- function(.data, specials, ...){
     gamma_path <- list()
 
     # 1
-    gamma_grids <- lapply(kernel_weight, function(w) na.omit(unique(abs(y_1[w>0]))))
+    gamma_grids <- lapply(kernel_weight, function(w) stats::na.omit(unique(abs(y_1[w>0]))))
 
     which_min <- pbapply::pblapply(seq_along(gamma_grids), function(i){
       # which_min <- lapply(seq_along(gamma_grids), function(i){
@@ -255,7 +255,7 @@ specials_thrreg <- new_specials(
                    min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)
-    if(rlang::as_string(var_name)!="NULL"){
+    if(!is.null(var_name)){
       var <- select(as_tibble(self$data), !!var_name) %>%
         unlist() %>%
         unname()
