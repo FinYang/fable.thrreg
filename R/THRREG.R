@@ -13,16 +13,12 @@ train_thrreg <- function(.data, specials, ...){
   # xreg <- bitcoin %>%
   #   as_tibble() %>%
   #   select(vlm,vlm_K,vlt,vlt_K,Illiq,Illiq_K,trn,trn_K)
-
-  delta <- specials$delta[[1]]
-  xreg <- specials$xreg[[1]]
-
   # delta <- TRUE
   # kernel <- with(
   #   list(self = list(data = bitcoin)),
   #   (function(var = NULL, kernel = epaker,
   #             # n = 2^8,
-  #             min_points = 15, bw = sd(var)/50){
+  #             min_points = 30, bw = sd(var)/25, max_iter = 10){
   #     var_name <- rlang::enexpr(var)
   #     bw <- rlang::enexpr(bw)
   #     if(rlang::as_string(var_name)!="NULL"){
@@ -33,7 +29,11 @@ train_thrreg <- function(.data, specials, ...){
   #     as.list(environment())
   #   })(fee))
 
+  delta <- specials$delta[[1]]
+  xreg <- specials$xreg[[1]]
   kernel <- specials$gamma[[1]]
+
+
   kernel_est <- !is.null(kernel$var)
   if(kernel_est && !delta){
     delta <- TRUE
@@ -91,7 +91,7 @@ train_thrreg <- function(.data, specials, ...){
   if(kernel_est){
     model_df <- bind_cols(model_df,
                           tibble(!!kernel$var_name := kernel$var))
-    kernel_grid <- unique(kernel$var)
+    kernel_grid <- kernel$var
     # kernel_grid <- do.call(seq, c(as.list(range(kernel$var)), list(length.out = kernel$n)))
 
 
@@ -128,7 +128,8 @@ train_thrreg <- function(.data, specials, ...){
 
 
     model_df_k <- tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
-      dplyr::inner_join(model_df, by = as_string(kernel$var_name)) %>%
+      distinct() %>%
+      dplyr::inner_join(model_df, by = rlang::as_string(kernel$var_name)) %>%
       tidyr::drop_na(!!sym(resp_1))
 
 
@@ -167,9 +168,15 @@ train_thrreg <- function(.data, specials, ...){
 
       # res_c <- lapply(kernel_weight, function(weights){
       gamma_res <- res_c <- sapply(kernel_weight, function(weights){
-        idx <- sapply(unique(kernel$var[weights>0]),
+        idx <- sapply(abs(unique(kernel$var[weights>0])),
                       function(gamma){
-                        sum(find_multiplier_c(gamma) * weights[c(FALSE, (!which_drop))])
+                        a <- find_multiplier_c(gamma)
+                        b <- weights[!`[<-`(which_drop, 1, TRUE)] # drop the first with na
+                        # if(length(a)!=length(b)) {
+                        #   browser()
+                        # }
+                        sum(a*b)
+                        # sum(find_multiplier_c(gamma) * weights[!which_drop])
                       }) %>%
           which.min()
         unique(kernel$var[weights>0])[idx]
@@ -179,7 +186,7 @@ train_thrreg <- function(.data, specials, ...){
       gamma_path[[iter]] <- tibble(!!sym(kernel$var_name):=kernel_grid, .gamma = gamma_res)
       model_df_k <- model_df_k %>%
         select(-.gamma) %>%
-        dplyr::left_join(gamma_path[[iter]], by = as_string(kernel$var_name))
+        dplyr::left_join(distinct(gamma_path[[iter]]), by = as_string(kernel$var_name))
 
       if(iter>1){
         if(norm(coef_path[[iter]] - coef_path[[iter-1]], "2")< 1){
@@ -248,7 +255,7 @@ specials_thrreg <- new_specials(
                    min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)
-    if(!is.null(var)){
+    if(rlang::as_string(var_name)!="NULL"){
       var <- select(as_tibble(self$data), !!var_name) %>%
         unlist() %>%
         unname()
