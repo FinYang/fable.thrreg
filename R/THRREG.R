@@ -32,7 +32,7 @@ train_thrreg <- function(.data, specials, ...){
   delta <- specials$delta[[1]]
   xreg <- specials$xreg[[1]]
   kernel <- specials$gamma[[1]]
-
+  browser()
 
   kernel_est <- !is.null(kernel$var)
   if(kernel_est && !delta){
@@ -236,37 +236,7 @@ train_thrreg <- function(.data, specials, ...){
   )
 
 }
-#' Epaker kernel function
-#'
-#' Kernel function for grid windows
-#'
-#' @param x value to apply kernel to
-#' @export
-epaker <- function(x) {
-  (3/4)*(1-x^2)*(abs(x)<=1)
-}
 
-specials_thrreg <- new_specials(
-  delta = function(delta = FALSE){
-    delta
-  },
-  gamma = function(var = NULL, kernel = epaker,
-                   # n = 2^8,
-                   min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
-    var_name <- rlang::enexpr(var)
-    bw <- rlang::enexpr(bw)
-    if(!is.null(var_name)){
-      var <- select(as_tibble(self$data), !!var_name) %>%
-        unlist() %>%
-        unname()
-    }
-    as.list(environment())
-  },
-  xreg = function(...) {
-    select(as_tibble(self$data), !!!enexprs(...))
-  },
-  .required_specials = c("delta", "gamma")
-)
 
 #' @export
 THRREG <- function(formula, ...){
