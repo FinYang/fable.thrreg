@@ -32,7 +32,6 @@ train_thrreg <- function(.data, specials, ...){
   delta <- specials$delta[[1]]
   xreg <- specials$xreg[[1]]
   kernel <- specials$gamma[[1]]
-  browser()
 
   kernel_est <- !is.null(kernel$var)
   if(kernel_est && !delta){
