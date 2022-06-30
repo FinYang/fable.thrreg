@@ -10,7 +10,6 @@ train_thrreg <- function(.data, specials, ...){
   if (length(tsibble::measured_vars(.data)) > 1) {
     stop("Only univariate response is supported by thrreg.")
   }
-
   gamma_env <- new.env(parent=emptyenv())
   gamma_env$i <- 1
   gamma_env$gamma <- list()
@@ -22,9 +21,13 @@ train_thrreg <- function(.data, specials, ...){
   }
 
   replace_gamma_lang <- function(ind_expr){
-    gamma_pos <- which(sapply(as.list(ind_expr), function(y) is_call_name(y, "gamma")))
-    ind_expr[[gamma_pos]] <- eval(ind_expr[[gamma_pos]])
-    ind_expr
+
+    ind_expr_str <- deparse(ind_expr)
+    stringr::str_extract_all( ind_expr_str, "gamma\\(([[:digit:]])*\\)") %>%
+      unlist() %>%
+      purrr::walk(function(x) eval(str2expression(x)))
+    str2lang(gsub("gamma\\(([[:digit:]])*\\)", ".gamma_\\1", ind_expr_str))
+
   }
   squash_tibble <- function(x, layers){
     lapply(layers, function(layer)
@@ -40,7 +43,7 @@ train_thrreg <- function(.data, specials, ...){
 
 
 
-  gamma_terms <- unique(unlist(gamma_env$gamma))
+  # gamma_terms <- unique(unlist(gamma_env$gamma))
 
 
   rhs_terms <- map(rhs, function(x){
@@ -88,19 +91,67 @@ train_thrreg <- function(.data, specials, ...){
   }
 
 
-  gamma_grids <- map(ind_term, function(x){
-    eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
+  if(length(unlist(gamma_env$gamma)) == length(ind_term)){
+
+    all_gamma_grids <- map(ind_term, function(x){
+      eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
+    }
+    ) %>%
+      split(unlist(gamma_env$gamma)) %>%
+      lapply(function(x) x %>%
+               unlist() %>%
+               unique() %>%
+               sort() %>%
+               .[seq(k, n-k, by = 1)] )
+    all_gamma_grids <- all_gamma_grids %>%
+      expand.grid() %>%
+      split(row(.)) %>%
+      lapply(unlist)
+
+  } else if(length(unlist(gamma_env$gamma)) > length(ind_term)){
+    # parametric
+    if(length(ind_term)>1) {
+      abort("Only one indicator function allowed when using parametric gamma.")
+    }
+
+    ind_single <- ind_term[[1]]
+    # grids <- list(
+    #   .gamma_1 = function(){
+    #     x <- eval_tidy(ind_single$ind$ind_expression[[1]], data = ind_single$ind$xreg$xregs)
+    #     quantile(x, seq(0.001, 1, by = 0.001), na.rm = TRUE)
+    #   },
+    #   .gamma_1 = function(){
+    #     x <- eval_tidy(ind_single$ind$ind_expression[[2]], data = ind_single$ind$xreg$xregs)
+    # x2 <- ind_single$ind$ind_expression[[2]] %>%
+    #   find_leaf() %>%
+    #   sapply(deparse)
+    #     select(ind_single$ind$xreg$xregs, any_of(x2))
+    #   }
+    # )
+
+    x2 <- ind_single$ind$ind_expression[[2]] %>%
+      find_leaf() %>%
+      sapply(deparse)
+    grid_choice <- dplyr::transmute(ind_single$ind$xreg$xregs, !!ind_single$ind$ind_expression[[1]]) %>%
+      bind_cols(select(ind_single$ind$xreg$xregs, any_of(x2))) %>%
+      tidyr::drop_na() %>%
+      as.matrix()
+    inter_slope <- function(mat){
+      slope <- do.call(`/`, as.list(mat[1,]-mat[2,]))
+      intercept <- mat[[1,1]]-slope * mat[[1,2]]
+      c(intercept, slope)
+    }
+    sample_grid <- function(mat){
+      out <- inter_slope(mat[sample(NROW(mat), 2),])
+      if(any(out<0)) return(sample_grid(mat))
+      out
+    }
+      all_gamma_grids <- t(replicate(2000, sample_grid(grid_choice))) %>%
+        as.data.frame() %>%
+        `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
+        split(seq_len(nrow(.))) %>%
+        lapply(unlist)
   }
-  ) %>%
-    split(unlist(gamma_env$gamma)) %>%
-    lapply(function(x) x %>%
-             unlist() %>%
-             unique() %>%
-             sort() %>%
-             .[seq(k, n-k, by = 1)] )
-
-
-
 
   fm <- if(!is.null(one_term)){
     expr(I(!!sym(resp) - !!one_expr) ~ !!reduce(rhs_terms, function(.x, .y) call2("+", .x, .y)))
@@ -112,22 +163,21 @@ train_thrreg <- function(.data, specials, ...){
     fm_str <- deparse(fm) %>%
       stringr::str_trim(side = "left") %>%
       paste0(collapse = "")
-    purrr::walk(names(gamma_grids), function(.x ){
+    purrr::walk(names(all_gamma_grids[[1]]), function(.x ){
       fm_str <<- gsub(.x, paste0("!!", .x), fm_str)
     })
 
     list_from_name <- function(name){
-      `names<-`(list(rep(NULL, length(gamma_grids))), name)
+      `names<-`(vector("list", length(all_gamma_grids[[1]])), names(all_gamma_grids[[1]]))
     }
     rlang::new_function(
-      list_from_name(names(gamma_grids)),
+      list_from_name(names(all_gamma_grids)),
       expr(str2lang(paste0(deparse(expr(!!str2lang(fm_str))), collapse = "")))
     )
   }
 
   get_ssr <- function(gammas, fm, weights = NULL, data = model_df){
-    gammas <- round(gammas, 6)
-    fm <- do.call(get_fm_fun(fm), list(gammas))
+    fm <- do.call(get_fm_fun(fm), as.list(gammas))
     weights <- enexpr(weights)
     data <- enexpr(data)
     fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
@@ -139,18 +189,6 @@ train_thrreg <- function(.data, specials, ...){
     sum(resid(fit)^2)
   }
 
-  get_ssr2 <- function(gammas, fm, weights = NULL, data = model_df){
-    fm <- do.call(get_fm_fun(fm), list(gammas))
-    weights <- enexpr(weights)
-    data <- enexpr(data)
-    fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
-    if(anyNA(coef(fit))){
-      if(anyNA(coef(fit)[-3]))
-        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
-      return(Inf)
-    }
-    sum(resid(fit)^2)
-  }
   kernel_est <- FALSE
   if(kernel_est){
     model_df <- bind_cols(model_df,
@@ -173,13 +211,13 @@ train_thrreg <- function(.data, specials, ...){
     gamma_path <- list()
 
     # 1
-    gamma_grids <- lapply(kernel_weight, function(w) stats::na.omit(unique(abs(y_1[w>0]))))
+    all_gamma_grids <- lapply(kernel_weight, function(w) stats::na.omit(unique(abs(y_1[w>0]))))
 
-    which_min <- pbapply::pblapply(seq_along(gamma_grids), function(i){
+    which_min <- pbapply::pblapply(seq_along(all_gamma_grids), function(i){
       # which_min <- lapply(seq_along(gamma_grids), function(i){
       i <- enexpr(i)
       eval(expr(sapply(
-        gamma_grids[[!!i]], get_ssr,
+        all_gamma_grids[[!!i]], get_ssr,
         fm = get_full_fm(gamma),
         weights = kernel_weight[[!!i]][kernel_weight[[!!i]]>0],
         data = model_df[kernel_weight[[!!i]]>0,])
@@ -187,7 +225,7 @@ train_thrreg <- function(.data, specials, ...){
     }) %>%
       sapply(which.min)
 
-    min_gamma <- mapply(function(.x, .i).x[.i], gamma_grids, which_min)
+    min_gamma <- mapply(function(.x, .i).x[.i], all_gamma_grids, which_min)
 
 
     model_df_k <- tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
@@ -280,15 +318,10 @@ train_thrreg <- function(.data, specials, ...){
     .resid <- c(NA, residuals(mdl))
   } else {
 
-    all_gamma_grids <- gamma_grids %>%
-      expand.grid() %>%
-      split(row(.)) %>%
-      lapply(unlist)
-    ssr <- all_gamma_grids %>%sapply(get_ssr, fm)
+    ssr <- all_gamma_grids %>% sapply(get_ssr, fm)
     # path <- tibble(gamma_grid, ssr)
     .gamma <- all_gamma_grids[[which.min(ssr)]]
-    mdl <- eval(expr(lm(!!get_fm_fun(fm)(.gamma), data = model_df)))
-
+    mdl <- eval(expr(lm(!!do.call(get_fm_fun(fm), as.list(.gamma)), data = model_df)))
 
     .resid <- residuals(mdl)
   }
@@ -328,7 +361,7 @@ tidy.fbl_thrreg <- function(x, ...){
   broom::tidy(x$model, ...) %>%
     # broom::tidy(x$model) %>%
     mutate(estimate = `class<-`(estimate, class(x$est$.gamma))) %>%
-    bind_rows(tibble(term = ".gamma", estimate = x$est$.gamma))
+    bind_rows(tibble(term = names(x$est$.gamma), estimate = x$est$.gamma))
 
 }
 
