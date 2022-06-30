@@ -11,13 +11,6 @@ train_thrreg <- function(.data, specials, ...){
     stop("Only univariate response is supported by thrreg.")
   }
 
-
-  rhs <- specials$xreg[[1]]
-
-  ind_term <- rhs[sapply(rhs, length)>1]
-
-
-
   gamma_env <- new.env(parent=emptyenv())
   gamma_env$i <- 1
   gamma_env$gamma <- list()
@@ -27,14 +20,33 @@ train_thrreg <- function(.data, specials, ...){
     gamma_env$i <- gamma_env$i + 1
     sym(g)
   }
+
+  replace_gamma_lang <- function(ind_expr){
+    gamma_pos <- which(sapply(as.list(ind_expr), function(y) is_call_name(y, "gamma")))
+    ind_expr[[gamma_pos]] <- eval(ind_expr[[gamma_pos]])
+    ind_expr
+  }
+  squash_tibble <- function(x, layers){
+    lapply(layers, function(layer)
+      find_tibble(x, layer)
+    ) %>%
+      quietly_squash() %>%
+      purrr::reduce(function(x, y){
+        bind_cols(x, select(y, !any_of(colnames(x)))) })
+  }
+
+  rhs <- specials$xreg[[1]]
+  ind_term <- rhs[sapply(rhs, length)>1]
+
+
+
   gamma_terms <- unique(unlist(gamma_env$gamma))
 
 
   rhs_terms <- map(rhs, function(x){
     if("ind" %in% names(x)) {
       ind_expr <- x$ind$expression
-      gamma_pos <- which(sapply(as.list(ind_expr), function(y) is_call_name(y, "gamma")))
-      ind_expr[[3]] <- eval(ind_expr[[3]])
+      ind_expr <- replace_gamma_lang(ind_expr)
 
       expr(I(!!x$xreg$expression * (!!ind_expr)))
     } else {
@@ -43,19 +55,38 @@ train_thrreg <- function(.data, specials, ...){
   }
   )
 
-
-  model_data <- lapply(3:4, function(layer)
-    rhs %>%
+  find_tibble <- function(x, layer){
+    x %>%
       purrr::map_depth(layer, function(x) if(is_tibble(x)) x else NULL) %>%
       quietly_squash() %>%
       {.[!sapply(., is.null)]}
-  ) %>%
-    quietly_squash() %>%
-    purrr::reduce(function(x, y){
-      bind_cols(x, select(y, !any_of(colnames(x)))) })
+  }
+
+
+
+  model_data <- squash_tibble(rhs, 3:4)
+
+
   resp <- measured_vars(.data)
   n <- nrow(model_data)
   k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
+
+  model_df <- .data %>%
+    bind_cols(select(model_data, !any_of(colnames(.))))
+
+  one_term <- specials$one[[1]]
+  if(!is.null(one_term)){
+    one_expr <- one_term$expression %>%
+      deparse() %>%
+      gsub("ind", "", .) %>%
+      gsub("gamma\\(([[:digit:]])*\\)", ".gamma_\\1", .) %>%
+      str2lang()
+    one_data <- one_term$data
+    one_data <- squash_tibble(one_data, 2:3)
+    model_df <- model_df %>%
+      bind_cols(select(one_data, !any_of(colnames(.))))
+  }
+
 
   gamma_grids <- map(ind_term, function(x){
     eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
@@ -68,14 +99,14 @@ train_thrreg <- function(.data, specials, ...){
              sort() %>%
              .[seq(k, n-k, by = 1)] )
 
-  model_df <- bind_cols(.data, select(model_data, !any_of(colnames(.data))))
 
 
 
-  fm <- expr(
-    !!sym(resp) ~ !!reduce(rhs_terms, function(.x, .y) call2("+", .x, .y))
-  )
-
+  fm <- if(!is.null(one_term)){
+    expr(I(!!sym(resp) - !!one_expr) ~ !!reduce(rhs_terms, function(.x, .y) call2("+", .x, .y)))
+  } else {
+    expr(!!sym(resp) ~ !!reduce(rhs_terms, function(.x, .y) call2("+", .x, .y)))
+  }
 
   get_fm_fun <- function(fm) {
     fm_str <- deparse(fm) %>%
@@ -126,7 +157,6 @@ train_thrreg <- function(.data, specials, ...){
                           tibble(!!kernel$var_name := kernel$var))
     kernel_grid <- kernel$var
     # kernel_grid <- do.call(seq, c(as.list(range(kernel$var)), list(length.out = kernel$n)))
-
 
     kernel_weight <- mapply(
       function(grid, bw) kernel$kernel((kernel$var - grid)/bw),
@@ -262,8 +292,6 @@ train_thrreg <- function(.data, specials, ...){
 
     .resid <- residuals(mdl)
   }
-
-
 
   structure(
     list(model = mdl,

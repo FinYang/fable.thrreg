@@ -16,7 +16,11 @@ specials_thrreg <- new_specials(
   one = function(arg){
     arg <- enexpr(arg)
     data <- break_interaction(arg, "*") %>%
-      quietly_squash() %>%
+      quietly_squash()
+    bare_xreg <- !sapply(data, function(x) is_call_name(x, "ind"))
+    data[[which(bare_xreg)]] <- expr(xreg(!!data[[which(bare_xreg)]]))
+
+    data <- data %>%
       `names<-`(sapply(., deparse)) %>%
       map(eval_tidy, data = self$data, env = self$specials)
     list(data = data,
