@@ -19,16 +19,31 @@ specials_thrreg <- new_specials(
       quietly_squash() %>%
       `names<-`(sapply(., deparse)) %>%
       map(eval_tidy, data = self$data, env = self$specials)
-
     list(data = data,
          expression = arg)
   },
-  gamma = function(var = NULL,
-                   sign = c("<", ">"),
+  ind = function(x){
+    x <- enexpr(x)
+    out <- find_leaf(x, exclude = "gamma")
+    bare_xreg <- !sapply(out, is_call_name, names(specials_thrreg))
+    out$xreg <- expr(xreg(!!out[[which(bare_xreg)]]))
+    out[which(bare_xreg)] <- NULL
+    names(out)[names(out)==""] <- sapply(out[names(out)==""], call_name)
+    out <- map(out, eval_tidy, data = self$data, env = self$specials)
+    out$expression <- x
+    out$ind_expression <- find_leaf(x, include = c("<", "<=", ">", ">=")) %>%
+      {.[!sapply(., function(y) is_call_name(y, "gamma"))]}
+
+    out
+
+
+
+  },
+  gamma = function(id = NULL,
+                   var = NULL,
                    kernel = epaker,
-                   # n = 2^8,
-                   min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
-    sign <- match.arg(sign)
+                   min_points = NCOL(self$data) + 5,
+                   bw = sd(var)/10, max_iter = 10){
 
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)
@@ -42,9 +57,8 @@ specials_thrreg <- new_specials(
   xreg = function(...) {
     regs <- enexprs(...)
 
-
     if(any(sapply(regs[sapply(regs, is_call)], call_name) == "gamma"))
-      stop("gamma() in the formula should interact with other terms using *.")
+      stop("gamma() in the formula should used inside ind()")
 
     parsed_regs <- map(regs, break_interaction)
     bare_xreg <- sapply(parsed_regs, length)==1
@@ -52,7 +66,7 @@ specials_thrreg <- new_specials(
     if(all(bare_xreg)) {
       xregs_exog <- reduce(unlist(parsed_regs), function(.x, .y) call2("+", .x, .y))
       return(
-        list(xregs = select(as_tibble(self$data), !!!(find_leaf(xregs_exog))),
+        list(xregs = select(as_tibble(self$data), !!!find_leaf(xregs_exog)),
              expression = xregs_exog)
       )
     }
@@ -61,23 +75,16 @@ specials_thrreg <- new_specials(
                    list(list(unlist(parsed_regs[bare_xreg])))
     )
     xreg<- map(call_xreg, function(xcall) {
-      bare_xreg <- !sapply(xcall, function(x) all(sapply(x, function(y) is_call(y) && call_name(y)=="gamma")))
+      bare_xreg <- !sapply(xcall, function(x) all(sapply(x, function(y) is_call_name(y,"ind"))))
       xcall[["xreg"]] <- expr(xreg(!!!xcall[[which(bare_xreg)]]))
       xcall[[which(bare_xreg)]] <- NULL
       xcall <- unlist(xcall)
-      # xcall
       map(xcall, eval_tidy, data = self$data, env = self$specials)
-    }
-    )
-    names(xreg) <- sapply(xreg, function(x) {
-      if(!"gamma" %in% names(x)) return("xreg")
-      paste0(c(names(x)[names(x)!="xreg"], deparse(x$xreg$expression)), collapse = "_")
-    }
-    )
+    })
     return(xreg)
   },
   .required_specials = c("delta"),
-  .xreg_specials = c("gamma")
+  .xreg_specials = c("gamma", "ind")
 )
 
 flatten2 <- function(x) {
@@ -118,4 +125,24 @@ break_interaction <- function(x, no_base = c("+", "*", "(")){
     }
   )
   flatten2(output)
+}
+
+inside_ind <- function(ind){
+  inner <- ind[[2]]
+  recur_list <- function(x){
+    # browser()
+    if(is.list(x)){
+      return(lapply(x, recur_list))
+    }
+    if(is_call_name(x, c( "&", "<", "<=", ">", ">="))) {
+      return(lapply(list(x[[1]], as.list(x[-1])), recur_list))
+    }
+    x
+  }
+  inner_ls <- recur_list(inner)
+
+  if(depth(inner_ls)>4 || (depth(iner_ls)>2 && !identical(inner_ls[[1]], sym("&"))))
+    stop("`ind` only support at most one `&` operation.")
+  inner_ls[[2]] %>%
+    lapply(function(x) `attr<-`(x[[2]], "compare", x[[1]]))
 }

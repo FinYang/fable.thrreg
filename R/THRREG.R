@@ -1,89 +1,102 @@
 
 
-
+#' @importFrom dplyr lag
+#' @export
+dplyr::lag
 
 
 train_thrreg <- function(.data, specials, ...){
+  lag <- dplyr::lag
   if (length(tsibble::measured_vars(.data)) > 1) {
     stop("Only univariate response is supported by thrreg.")
   }
 
-  browser()
 
   rhs <- specials$xreg[[1]]
-  gamma_terms <- rhs[grepl("gamma", names(rhs))]
-  gamma_terms <- split(gamma_terms, names(gamma_terms))
-  # gamma_terms <- split(gamma_terms, 1:2)
-gamma_term <- gamma_terms[[1]]
+
+  ind_term <- rhs[sapply(rhs, length)>1]
 
 
-  get_gamma_fm <- function(xreg, .gamma, sign){
-    temp <- str2lang(paste0(deparse(xreg), sign, deparse(.gamma), collapse = ""))
-    expr(!!xreg * abs(!!temp))
+
+  gamma_env <- new.env(parent=emptyenv())
+  gamma_env$i <- 1
+  gamma_env$gamma <- list()
+  gamma <- function(id){
+    g <- paste0(".gamma_", id)
+    gamma_env$gamma[[gamma_env$i]] <- g
+    gamma_env$i <- gamma_env$i + 1
+    sym(g)
   }
-  get_regimes <- function()
-
-  gamma_terms %>%
-    lapply(function(gamma_term){
-      if((lgamma <- length(gamma_term))>1){
-        gamma_term <- purrr::reduce(gamma_term, function(x, y)
-          {
-          if(identical(x, y)){
-            x
-          } else {
-            abort("Specification of gamma should be identical in multiple regimes.")
-          }
-            })
+  gamma_terms <- unique(unlist(gamma_env$gamma))
 
 
-      } else {
+  rhs_terms <- map(rhs, function(x){
+    if("ind" %in% names(x)) {
+      ind_expr <- x$ind$expression
+      gamma_pos <- which(sapply(as.list(ind_expr), function(y) is_call_name(y, "gamma")))
+      ind_expr[[3]] <- eval(ind_expr[[3]])
 
-      }
+      expr(I(!!x$xreg$expression * (!!ind_expr)))
+    } else {
+      x$xreg$expression
+    }
+  }
+  )
 
-    lapply(gamma_term, function(x)
-      get_gamma_fm(x$xreg$expression, sym(".gamma"), x$gamma$sign))
+
+  model_data <- lapply(3:4, function(layer)
+    rhs %>%
+      purrr::map_depth(layer, function(x) if(is_tibble(x)) x else NULL) %>%
+      quietly_squash() %>%
+      {.[!sapply(., is.null)]}
+  ) %>%
+    quietly_squash() %>%
+    purrr::reduce(function(x, y){
+      bind_cols(x, select(y, !any_of(colnames(x)))) })
+  resp <- measured_vars(.data)
+  n <- nrow(model_data)
+  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
+
+  gamma_grids <- map(ind_term, function(x){
+    eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
+  }
+  ) %>%
+    split(unlist(gamma_env$gamma)) %>%
+    lapply(function(x) x %>%
+             unlist() %>%
+             unique() %>%
+             sort() %>%
+             .[seq(k, n-k, by = 1)] )
+
+  model_df <- bind_cols(.data, select(model_data, !any_of(colnames(.data))))
+
+
+
+  fm <- expr(
+    !!sym(resp) ~ !!reduce(rhs_terms, function(.x, .y) call2("+", .x, .y))
+  )
+
+
+  get_fm_fun <- function(fm) {
+    fm_str <- deparse(fm) %>%
+      stringr::str_trim(side = "left") %>%
+      paste0(collapse = "")
+    purrr::walk(names(gamma_grids), function(.x ){
+      fm_str <<- gsub(.x, paste0("!!", .x), fm_str)
     })
 
-
-
-  xreg <- rhs$xreg
-
-  n <- nrow(xreg)
-  k <- ncol(xreg) + 2
-  resp <- measured_vars(.data)
-  resp_1 <- paste0(resp, "_1")
-
-  # Find gamma grid
-  y_1 <- dplyr::lag(getElement(.data, resp))
-  gamma_grid <- y_1 %>%
-    abs() %>%
-    unique() %>%
-    sort()
-  gamma_grid <- gamma_grid[seq(k, n-k, by = 1)]
-
-  model_df <- bind_cols(select(as_tibble(.data), !!sym(resp)),
-                        !!sym(resp_1) := y_1,
-                        xreg)
-  get_full_fm <- function(.gamma){
-    if(delta){
-      fm <- expr(
-        !!sym(resp) ~
-          !!sym(resp_1) +
-          I(!!sym(resp_1) * (abs(!!sym(resp_1)) <= !!.gamma)) +
-          !!reduce(syms(colnames(xreg)), function(.x, .y) call2("+", .x, .y)))
-    } else {
-      fm <- expr(
-        I(!!sym(resp) - !!sym(resp_1) * (abs(!!sym(resp_1)) <= !!.gamma)) ~
-          I(!!sym(resp_1) -
-              !!sym(resp_1) * (abs(!!sym(resp_1)) <= !!.gamma)) +
-          !!reduce(syms(colnames(xreg)), function(.x, .y) call2("+", .x, .y)))
+    list_from_name <- function(name){
+      `names<-`(list(rep(NULL, length(gamma_grids))), name)
     }
-    fm
+    rlang::new_function(
+      list_from_name(names(gamma_grids)),
+      expr(str2lang(paste0(deparse(expr(!!str2lang(fm_str))), collapse = "")))
+    )
   }
 
-
-  get_ssr <- function(gamma, fm, weights = NULL, data = model_df){
-    fm <- eval(enexpr(fm))
+  get_ssr <- function(gammas, fm, weights = NULL, data = model_df){
+    gammas <- round(gammas, 6)
+    fm <- do.call(get_fm_fun(fm), list(gammas))
     weights <- enexpr(weights)
     data <- enexpr(data)
     fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
@@ -95,6 +108,19 @@ gamma_term <- gamma_terms[[1]]
     sum(resid(fit)^2)
   }
 
+  get_ssr2 <- function(gammas, fm, weights = NULL, data = model_df){
+    fm <- do.call(get_fm_fun(fm), list(gammas))
+    weights <- enexpr(weights)
+    data <- enexpr(data)
+    fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
+    if(anyNA(coef(fit))){
+      if(anyNA(coef(fit)[-3]))
+        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
+      return(Inf)
+    }
+    sum(resid(fit)^2)
+  }
+  kernel_est <- FALSE
   if(kernel_est){
     model_df <- bind_cols(model_df,
                           tibble(!!kernel$var_name := kernel$var))
@@ -223,10 +249,17 @@ gamma_term <- gamma_terms[[1]]
 
     .resid <- c(NA, residuals(mdl))
   } else {
-    ssr <- sapply(gamma_grid, get_ssr, fm = get_full_fm(gamma))
-    path <- tibble(gamma_grid, ssr)
-    .gamma <- gamma_grid[which.min(ssr)]
-    mdl <- eval(expr(lm(!!get_full_fm(gamma_grid[which.min(ssr)]), data = model_df)))
+
+    all_gamma_grids <- gamma_grids %>%
+      expand.grid() %>%
+      split(row(.)) %>%
+      lapply(unlist)
+    ssr <- all_gamma_grids %>%sapply(get_ssr, fm)
+    # path <- tibble(gamma_grid, ssr)
+    .gamma <- all_gamma_grids[[which.min(ssr)]]
+    mdl <- eval(expr(lm(!!get_fm_fun(fm)(.gamma), data = model_df)))
+
+
     .resid <- residuals(mdl)
   }
 
@@ -236,7 +269,7 @@ gamma_term <- gamma_terms[[1]]
     list(model = mdl,
          est = list(
            .gamma = .gamma,
-           .path = path,
+           # .path = path,
            .resid = .resid
          )),
     class = "fbl_thrreg"

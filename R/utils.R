@@ -1,10 +1,12 @@
-is_call_name <- function(x, name){
-  is.call(x) && call_name(x) %in% name
+is_call_name <- function(x, name = NULL){
+  is.call(x) && !is.null(name) && call_name(x) %in% name
 }
 
 quietly_squash <- function(x) quietly(squash)(x)$result
 
-find_leaf <- function(arg, branch_name = NULL) {
+# @param include include only these names as call
+# @param exclude exclude as call
+find_leaf <- function(arg, branch_name = NULL, exclude = NULL, include = NULL) {
   tree <- new.env(parent=emptyenv())
   tree$i <- 1
   tree$leaves <- list()
@@ -27,10 +29,20 @@ find_leaf <- function(arg, branch_name = NULL) {
     return(
       tree$leaves[!sapply(tree$leaves, deparse) %in% branch_name]
     )
+  } else if(!is.null(include)){
+    include <- setdiff(include, exclude)
+    fabletools::traverse(
+      arg, .h=function(x) if(!is_call(x) || (!call_name(x) %in% include)) pick_leaf(x),
+      base = function(x) if(is.call(x) && (call_name(x) %in% include)) {pick_call(x[[1]]); return(FALSE)} else TRUE
+    )
+    return(
+      tree$leaves[!sapply(tree$leaves, deparse) %in% sapply(tree$calls, deparse)] %>%
+        unique()
+    )
   } else {
     fabletools::traverse(
-      arg, .h=function(x) if(!is_call(x)) pick_leaf(x),
-      base = function(x) if(is_call(x)) {pick_call(x[[1]]); return(FALSE)} else TRUE
+      arg, .h=function(x) if(!is_call(x) || is_call_name(x, exclude)) pick_leaf(x),
+      base = function(x) if(is.call(x) && (!call_name(x) %in% exclude)) {pick_call(x[[1]]); return(FALSE)} else TRUE
     )
     return(
       tree$leaves[!sapply(tree$leaves, deparse) %in% sapply(tree$calls, deparse)] %>%
@@ -42,6 +54,7 @@ find_leaf <- function(arg, branch_name = NULL) {
 
 }
 
+depth <- function(this) ifelse(is.list(this), 1L + max(sapply(this, depth)), 0L)
 
 
 
