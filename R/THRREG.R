@@ -8,37 +8,45 @@ train_thrreg <- function(.data, specials, ...){
     stop("Only univariate response is supported by thrreg.")
   }
 
-  # .data <- bitcoin %>%
-  #   select(t, y)
-  # xreg <- bitcoin %>%
-  #   as_tibble() %>%
-  #   select(vlm,vlm_K,vlt,vlt_K,Illiq,Illiq_K,trn,trn_K)
-  # delta <- TRUE
-  # kernel <- with(
-  #   list(self = list(data = bitcoin)),
-  #   (function(var = NULL, kernel = epaker,
-  #             # n = 2^8,
-  #             min_points = 30, bw = sd(var)/25, max_iter = 10){
-  #     var_name <- rlang::enexpr(var)
-  #     bw <- rlang::enexpr(bw)
-  #     if(!is.null(var_name)){
-  #       var <- dplyr::select(as_tibble(self$data), !!var_name) %>%
-  #         unlist() %>%
-  #         unname()
-  #     }
-  #     as.list(environment())
-  #   })(fee))
+  browser()
 
-  delta <- specials$delta[[1]]
-  xreg <- specials$xreg[[1]]
-  kernel <- specials$gamma[[1]]
+  rhs <- specials$xreg[[1]]
+  gamma_terms <- rhs[grepl("gamma", names(rhs))]
+  gamma_terms <- split(gamma_terms, names(gamma_terms))
+  # gamma_terms <- split(gamma_terms, 1:2)
+gamma_term <- gamma_terms[[1]]
 
-  kernel_est <- !is.null(kernel$var)
-  if(kernel_est && !delta){
-    delta <- TRUE
-    warning("kernel estimation is only supported for unconstraint case. Setting delta = TRUE.")
+
+  get_gamma_fm <- function(xreg, .gamma, sign){
+    temp <- str2lang(paste0(deparse(xreg), sign, deparse(.gamma), collapse = ""))
+    expr(!!xreg * abs(!!temp))
   }
+  get_regimes <- function()
 
+  gamma_terms %>%
+    lapply(function(gamma_term){
+      if((lgamma <- length(gamma_term))>1){
+        gamma_term <- purrr::reduce(gamma_term, function(x, y)
+          {
+          if(identical(x, y)){
+            x
+          } else {
+            abort("Specification of gamma should be identical in multiple regimes.")
+          }
+            })
+
+
+      } else {
+
+      }
+
+    lapply(gamma_term, function(x)
+      get_gamma_fm(x$xreg$expression, sym(".gamma"), x$gamma$sign))
+    })
+
+
+
+  xreg <- rhs$xreg
 
   n <- nrow(xreg)
   k <- ncol(xreg) + 2

@@ -23,9 +23,13 @@ specials_thrreg <- new_specials(
     list(data = data,
          expression = arg)
   },
-  gamma = function(var = NULL, kernel = epaker,
+  gamma = function(var = NULL,
+                   sign = c("<", ">"),
+                   kernel = epaker,
                    # n = 2^8,
                    min_points = NCOL(self$data) + 5, bw = sd(var)/10, max_iter = 10){
+    sign <- match.arg(sign)
+
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)
     if(!is.null(var_name)){
@@ -67,7 +71,7 @@ specials_thrreg <- new_specials(
     )
     names(xreg) <- sapply(xreg, function(x) {
       if(!"gamma" %in% names(x)) return("xreg")
-      paste0(c(names(x)[names(x)!="xreg"], colnames(x$xreg$xregs)), collapse = "_")
+      paste0(c(names(x)[names(x)!="xreg"], deparse(x$xreg$expression)), collapse = "_")
     }
     )
     return(xreg)
