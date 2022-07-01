@@ -90,9 +90,8 @@ train_thrreg <- function(.data, specials, ...){
       bind_cols(select(one_data, !any_of(colnames(.))))
   }
 
-
   if(length(unlist(gamma_env$gamma)) == length(ind_term)){
-
+    parametric <- FALSE
     all_gamma_grids <- map(ind_term, function(x){
       eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
     }
@@ -109,7 +108,7 @@ train_thrreg <- function(.data, specials, ...){
       lapply(unlist)
 
   } else if(length(unlist(gamma_env$gamma)) > length(ind_term)){
-    # parametric
+    parametric <- TRUE
     if(length(ind_term)>1) {
       abort("Only one indicator function allowed when using parametric gamma.")
     }
@@ -128,8 +127,14 @@ train_thrreg <- function(.data, specials, ...){
     #     select(ind_single$ind$xreg$xregs, any_of(x2))
     #   }
     # )
+    gamma_idx <- ind_single$ind$ind_expression %>%
+      map(function(x) find_leaf(x, exclude = "gamma") %>%
+            sapply(is_call_name, "gamma") %>%
+            any()) %>%
+      unlist() %>%
+      which()
 
-    x2 <- ind_single$ind$ind_expression[[2]] %>%
+    x2 <- ind_single$ind$ind_expression[[gamma_idx]] %>%
       find_leaf() %>%
       sapply(deparse)
     grid_choice <- dplyr::transmute(ind_single$ind$xreg$xregs, !!ind_single$ind$ind_expression[[1]]) %>%
