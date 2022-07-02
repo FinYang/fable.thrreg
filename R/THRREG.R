@@ -114,19 +114,6 @@ train_thrreg <- function(.data, specials, ...){
     }
 
     ind_single <- ind_term[[1]]
-    # grids <- list(
-    #   .gamma_1 = function(){
-    #     x <- eval_tidy(ind_single$ind$ind_expression[[1]], data = ind_single$ind$xreg$xregs)
-    #     quantile(x, seq(0.001, 1, by = 0.001), na.rm = TRUE)
-    #   },
-    #   .gamma_1 = function(){
-    #     x <- eval_tidy(ind_single$ind$ind_expression[[2]], data = ind_single$ind$xreg$xregs)
-    # x2 <- ind_single$ind$ind_expression[[2]] %>%
-    #   find_leaf() %>%
-    #   sapply(deparse)
-    #     select(ind_single$ind$xreg$xregs, any_of(x2))
-    #   }
-    # )
     gamma_idx <- ind_single$ind$ind_expression %>%
       map(function(x) find_leaf(x, exclude = "gamma") %>%
             sapply(is_call_name, "gamma") %>%
@@ -322,10 +309,21 @@ train_thrreg <- function(.data, specials, ...){
 
     .resid <- c(NA, residuals(mdl))
   } else {
+    if(FALSE){
+    # if(parametric){
+
+      .gamma <- c(0, 1) %>%
+        `names<-`(unique(unlist(gamma_env$gamma))) %>%
+        optim(get_ssr,fm = fm) %>%
+        .$par
+
+
+    } else {
 
     ssr <- all_gamma_grids %>% sapply(get_ssr, fm)
     # path <- tibble(gamma_grid, ssr)
     .gamma <- all_gamma_grids[[which.min(ssr)]]
+    }
     mdl <- eval(expr(lm(!!do.call(get_fm_fun(fm), as.list(.gamma)), data = model_df)))
 
     .resid <- residuals(mdl)
