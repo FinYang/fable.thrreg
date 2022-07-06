@@ -135,25 +135,23 @@ train_thrreg <- function(.data, specials, ...){
     x2 <- ind_single$ind$ind_expression[[gamma_idx]] %>%
       find_leaf() %>%
       sapply(deparse)
-    grid_choice <- dplyr::transmute(ind_single$ind$xreg$xregs, !!ind_single$ind$ind_expression[[1]]) %>%
-      bind_cols(select(ind_single$ind$xreg$xregs, any_of(x2))) %>%
-      tidyr::drop_na() %>%
-      as.matrix()
-    inter_slope <- function(mat){
-      slope <- do.call(`/`, as.list(mat[1,]-mat[2,]))
-      intercept <- mat[[1,1]]-slope * mat[[1,2]]
-      c(intercept, slope)
-    }
-    sample_grid <- function(mat){
-      out <- inter_slope(mat[sample(NROW(mat), 2),])
-      if(any(out<0)) return(sample_grid(mat))
-      out
-    }
-      all_gamma_grids <- t(replicate(2000, sample_grid(grid_choice))) %>%
-        as.data.frame() %>%
-        `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
-        split(seq_len(nrow(.))) %>%
-        lapply(unlist)
+
+
+
+
+    all_gamma_grids <-
+      expand.grid(
+        # seq(-5, 15, 0.1),
+        # seq(-15, 15, 0.1)
+        seq(-50, 50, 1),
+        seq(-500, 500, 1)
+      ) %>%
+      `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
+      as_tibble() %>%
+      # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
+      split(seq_len(nrow(.))) %>%
+      lapply(unlist)
+
   }
 
   fm <- if(!is.null(one_term)){
@@ -183,10 +181,29 @@ train_thrreg <- function(.data, specials, ...){
     fm <- do.call(get_fm_fun(fm), as.list(gammas))
     weights <- enexpr(weights)
     data <- enexpr(data)
+
+    if(length(gammas) == 2){
+      # test for multicolinearity
+      test <- function(){
+        temp_env <- new.env()
+        purrr::walk2(names(gammas), gammas,assign, envir = temp_env)
+        temp <- ind_single$ind$expression %>%
+          replace_gamma_lang() %>%
+          eval_tidy( data = eval(data), env = temp_env)
+        if((!any(temp, na.rm = TRUE)) || !any(!temp, na.rm = TRUE) ) {
+          return(TRUE)
+        }
+        FALSE
+      }
+
+      if(test()) return(Inf)
+    }
+
+
     fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
     if(anyNA(coef(fit))){
-      if(anyNA(coef(fit)[-3]))
-        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
+      # if(anyNA(coef(fit)[-3]))
+      #   warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
       return(Inf)
     }
     sum(resid(fit)^2)
@@ -321,7 +338,7 @@ train_thrreg <- function(.data, specials, ...){
     .resid <- c(NA, residuals(mdl))
   } else {
     if(FALSE){
-    # if(parametric){
+      # if(parametric){
 
       .gamma <- c(0, 1) %>%
         `names<-`(unique(unlist(gamma_env$gamma))) %>%
@@ -331,9 +348,9 @@ train_thrreg <- function(.data, specials, ...){
 
     } else {
 
-    ssr <- all_gamma_grids %>% sapply(get_ssr, fm)
-    # path <- tibble(gamma_grid, ssr)
-    .gamma <- all_gamma_grids[[which.min(ssr)]]
+      ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm)
+      path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
+      .gamma <- all_gamma_grids[[which.min(ssr)]]
     }
     mdl <- eval(expr(lm(!!do.call(get_fm_fun(fm), as.list(.gamma)), data = model_df)))
 
@@ -344,7 +361,7 @@ train_thrreg <- function(.data, specials, ...){
     list(model = mdl,
          est = list(
            .gamma = .gamma,
-           # .path = path,
+           .path = path,
            .resid = .resid
          )),
     class = "fbl_thrreg"
