@@ -56,6 +56,12 @@ find_leaf <- function(arg, branch_name = NULL, exclude = NULL, include = NULL) {
 
 depth <- function(this) ifelse(is.list(this), 1L + max(sapply(this, depth)), 0L)
 
+#' @examples
+#' gsub_multir("a",1:3, "aaabb")
+gsub_multir <- function(pattern, replacements, x){
+  if(stringr::str_count(x, pattern) != length(replacements))
+    abort("The number of matched patterns is not the same as the number of provided replacements.")
+  purrr::reduce(replacements, function(x, r) stringi::stri_replace(x, r, regex = pattern), .init = x)
 
-
+}
 

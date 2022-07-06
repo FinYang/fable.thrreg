@@ -10,23 +10,29 @@ train_thrreg <- function(.data, specials, ...){
   if (length(tsibble::measured_vars(.data)) > 1) {
     stop("Only univariate response is supported by thrreg.")
   }
-  gamma_env <- new.env(parent=emptyenv())
-  gamma_env$i <- 1
+  gamma_fun_env <- new.env(parent=emptyenv())
+  gamma_env <- new.env(parent=gamma_fun_env)
+  gamma_env$id <- list()
   gamma_env$gamma <- list()
-  gamma <- function(id){
+  assign("gamma", function(id, ...){
     g <- paste0(".gamma_", id)
-    gamma_env$gamma[[gamma_env$i]] <- g
-    gamma_env$i <- gamma_env$i + 1
+    gamma_env$id <- id
+    gamma_env$gamma[[id]] <- g
     sym(g)
+  }, env = gamma_fun_env)
+
+  eval_gamma_in_string <- function(string){
+    gamma_pattern <- "gamma\\(.*?\\)"
+    stringr::str_extract_all( string, gamma_pattern) %>%
+      unlist() %>%
+      map(str2lang) %>%
+      map(eval_tidy, env = gamma_fun_env) %>%
+      gsub_multir(gamma_pattern, ., string)
   }
 
   replace_gamma_lang <- function(ind_expr){
-
     ind_expr_str <- deparse(ind_expr)
-    stringr::str_extract_all( ind_expr_str, "gamma\\(([[:digit:]])*\\)") %>%
-      unlist() %>%
-      purrr::walk(function(x) eval(str2expression(x)))
-    str2lang(gsub("gamma\\(([[:digit:]])*\\)", ".gamma_\\1", ind_expr_str))
+    str2lang(eval_gamma_in_string(ind_expr_str))
 
   }
   squash_tibble <- function(x, layers){
@@ -79,10 +85,15 @@ train_thrreg <- function(.data, specials, ...){
 
   one_term <- specials$one[[1]]
   if(!is.null(one_term)){
+
+    # if(kernel_est && grepl("gamma", deparse(one_term$expression))) {
+    #   abort()
+    #
+    # }
     one_expr <- one_term$expression %>%
       deparse() %>%
       gsub("ind", "", .) %>%
-      gsub("gamma\\(([[:digit:]])*\\)", ".gamma_\\1", .) %>%
+      eval_gamma_in_string() %>%
       str2lang()
     one_data <- one_term$data
     one_data <- squash_tibble(one_data, 2:3)
