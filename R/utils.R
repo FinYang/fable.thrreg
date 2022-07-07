@@ -58,10 +58,24 @@ depth <- function(this) ifelse(is.list(this), 1L + max(sapply(this, depth)), 0L)
 
 #' @examples
 #' gsub_multir("a",1:3, "aaabb")
-gsub_multir <- function(pattern, replacements, x){
-  if(stringr::str_count(x, pattern) != length(replacements))
-    abort("The number of matched patterns is not the same as the number of provided replacements.")
-  purrr::reduce(replacements, function(x, r) stringi::stri_replace(x, r, regex = pattern), .init = x)
+gsub_multi <- function(pattern = NULL, replacements, x, strings = NULL, ...){
+  if((is.null(pattern) && is.null(strings)) || (!is.null(pattern) && !is.null(strings)))
+    abort("Either pattern or strings should be given")
+  if(!is.null(pattern)){
+    if(length(pattern) == 1) {
+      if(stringr::str_count(x, pattern) != length(replacements))
+        abort("The number of matched patterns is not the same as the number of provided replacements.")
+      out <- purrr::reduce(replacements, function(x, r) sub(pattern, r, x, ...), .init = x)
+    } else {
+      abort("Only one pattern is supported.")
+    }
+  } else {
+    if(length(strings) != length(replacements))
+      abort("The number of given strings is not the same as the number of provided replacements.")
+    out <- purrr::reduce2(replacements, strings, function(x, r, s) sub(s, r, x, fixed = TRUE, ...),
+                          .init = x)
+  }
+  out
 
 }
 

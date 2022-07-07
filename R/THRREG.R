@@ -14,28 +14,38 @@ train_thrreg <- function(.data, specials, ...){
   gamma_env <- new.env(parent=gamma_fun_env)
   gamma_env$id <- list()
   gamma_env$gamma <- list()
-  assign("gamma", function(id, ...){
+  gamma_env$gamma_special <- list()
+  assign("gamma", function(id = var, var = NULL, ...){
+    var <- enexpr(var)
+    if(is.null(id)) id <- max(unlist(gamma_env$id[sapply(gamma_env$id, is.numeric)]) %||% 0, na.rm = TRUE) + 1
     g <- paste0(".gamma_", id)
-    gamma_env$id <- id
+    gamma_env$id <- c(gamma_env$id, id)
     gamma_env$gamma[[id]] <- g
     sym(g)
   }, env = gamma_fun_env)
 
 
   eval_gamma_in_string <- function(string){
-    browser()
     gamma_pattern <- "gamma(\\((?:[^()]|(?1))*\\))"
-    str_extract_perl( string, gamma_pattern) %>%
-      unlist() %>%
+    match_str <-
+      str_extract_perl( string, gamma_pattern) %>%
+      unlist()
+    match_str %>%
       map(str2lang) %>%
       map(eval_tidy, env = gamma_fun_env) %>%
-      gsub_multir(gamma_pattern, ., string)
+      gsub_multi(strings = match_str, replacements =  ., x = string)
   }
 
   replace_gamma_lang <- function(ind_expr){
     ind_expr_str <- deparse(ind_expr)
     str2lang(eval_gamma_in_string(ind_expr_str))
 
+  }
+  find_tibble <- function(x, layer){
+    x %>%
+      purrr::map_depth(layer, function(x) if(is_tibble(x)) x else NULL) %>%
+      quietly_squash() %>%
+      {.[!sapply(., is.null)]}
   }
   squash_tibble <- function(x, layers){
     lapply(layers, function(layer)
@@ -46,18 +56,18 @@ train_thrreg <- function(.data, specials, ...){
         bind_cols(x, select(y, !any_of(colnames(x)))) })
   }
 
+  # END of functions
+
   rhs <- specials$xreg[[1]]
   ind_term <- rhs[sapply(rhs, length)>1]
 
-
-
   # gamma_terms <- unique(unlist(gamma_env$gamma))
-
 
   rhs_terms <- map(rhs, function(x){
     if("ind" %in% names(x)) {
       ind_expr <- x$ind$expression
       ind_expr <- replace_gamma_lang(ind_expr)
+      gamma_env$gamma_special[[gamma_env$id[[length(gamma_env$id)]]]] <- x$ind$gamma
 
       expr(I(!!x$xreg$expression * (!!ind_expr)))
     } else {
@@ -66,25 +76,9 @@ train_thrreg <- function(.data, specials, ...){
   }
   )
 
-  find_tibble <- function(x, layer){
-    x %>%
-      purrr::map_depth(layer, function(x) if(is_tibble(x)) x else NULL) %>%
-      quietly_squash() %>%
-      {.[!sapply(., is.null)]}
-  }
-
-
-
   model_data <- squash_tibble(rhs, 3:4)
 
-
-  resp <- measured_vars(.data)
-  n <- nrow(model_data)
-  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
-
-  model_df <- .data %>%
-    bind_cols(select(model_data, !any_of(colnames(.))))
-
+  # When there is one term
   one_term <- specials$one[[1]]
   if(!is.null(one_term)){
 
@@ -103,57 +97,81 @@ train_thrreg <- function(.data, specials, ...){
       bind_cols(select(one_data, !any_of(colnames(.))))
   }
 
-  if(length(unlist(gamma_env$gamma)) == length(ind_term)){
-    parametric <- FALSE
-    all_gamma_grids <- map(ind_term, function(x){
-      eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
-    }
-    ) %>%
-      split(unlist(gamma_env$gamma)) %>%
-      lapply(function(x) x %>%
-               unlist() %>%
-               unique() %>%
-               sort() %>%
-               .[seq(k, n-k, by = 1)] )
-    all_gamma_grids <- all_gamma_grids %>%
-      expand.grid() %>%
-      split(row(.)) %>%
-      lapply(unlist)
 
-  } else if(length(unlist(gamma_env$gamma)) > length(ind_term)){
-    parametric <- TRUE
-    if(length(ind_term)>1) {
-      abort("Only one indicator function allowed when using parametric gamma.")
-    }
-
-    ind_single <- ind_term[[1]]
-    gamma_idx <- ind_single$ind$ind_expression %>%
-      map(function(x) find_leaf(x, exclude = "gamma") %>%
-            sapply(is_call_name, "gamma") %>%
-            any()) %>%
-      unlist() %>%
-      which()
-
-    x2 <- ind_single$ind$ind_expression[[gamma_idx]] %>%
-      find_leaf() %>%
-      sapply(deparse)
+  kernel_est <- FALSE
+  if(any(sapply(gamma_env$gamma_special, function(x) !is.null(x$var)))){
+    kernel_est <- TRUE
+    if(length(gamma_env$id)>1)
+      abort("Only one gamma term can appear in the formula when using kernel estimation.")
+  }
 
 
 
 
-    all_gamma_grids <-
-      expand.grid(
-        # seq(-5, 15, 0.1),
-        # seq(-15, 15, 0.1)
-        seq(-50, 50, 1),
-        seq(-500, 500, 1)
+
+
+  resp <- measured_vars(.data)
+  n <- nrow(model_data)
+  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
+
+  model_df <- .data %>%
+    bind_cols(select(model_data, !any_of(colnames(.))))
+
+
+  # Finding the gamma grids
+  if(!kernel_est){
+
+    if(length(unlist(gamma_env$gamma)) == length(ind_term)){
+      # Single regime
+      parametric <- FALSE
+      all_gamma_grids <- map(ind_term, function(x){
+        eval_tidy(x$ind$ind_expression[[1]], data = x$ind$xreg$xregs)
+      }
       ) %>%
-      `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
-      as_tibble() %>%
-      # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
-      split(seq_len(nrow(.))) %>%
-      lapply(unlist)
+        split(unlist(gamma_env$gamma)) %>%
+        lapply(function(x) x %>%
+                 unlist() %>%
+                 unique() %>%
+                 sort() %>%
+                 .[seq(k, n-k, by = 1)] )
+      all_gamma_grids <- all_gamma_grids %>%
+        expand.grid() %>%
+        split(row(.)) %>%
+        lapply(unlist)
 
+    } else if(length(unlist(gamma_env$gamma)) > length(ind_term)){
+      # parametrix ploy 2
+      parametric <- TRUE
+      if(length(ind_term)>1) {
+        abort("Only one indicator function allowed when using parametric gamma.")
+      }
+
+      ind_single <- ind_term[[1]]
+      gamma_idx <- ind_single$ind$ind_expression %>%
+        map(function(x) find_leaf(x, exclude = "gamma") %>%
+              sapply(is_call_name, "gamma") %>%
+              any()) %>%
+        unlist() %>%
+        which()
+
+      x2 <- ind_single$ind$ind_expression[[gamma_idx]] %>%
+        find_leaf() %>%
+        sapply(deparse)
+
+      all_gamma_grids <-
+        expand.grid(
+          # seq(-5, 15, 0.1),
+          # seq(-15, 15, 0.1)
+          seq(-50, 50, 1),
+          seq(-500, 500, 1)
+        ) %>%
+        `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
+        as_tibble() %>%
+        # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
+        split(seq_len(nrow(.))) %>%
+        lapply(unlist)
+
+    }
   }
 
   fm <- if(!is.null(one_term)){
@@ -166,18 +184,20 @@ train_thrreg <- function(.data, specials, ...){
     fm_str <- deparse(fm) %>%
       stringr::str_trim(side = "left") %>%
       paste0(collapse = "")
-    purrr::walk(names(all_gamma_grids[[1]]), function(.x ){
+    purrr::walk(unname(unlist(gamma_env$gamma)), function(.x ){
       fm_str <<- gsub(.x, paste0("!!", .x), fm_str)
     })
 
     list_from_name <- function(name){
-      `names<-`(vector("list", length(all_gamma_grids[[1]])), names(all_gamma_grids[[1]]))
+      `names<-`(vector("list", length(gamma_env$gamma)), unname(unlist(gamma_env$gamma)))
     }
     rlang::new_function(
-      list_from_name(names(all_gamma_grids)),
+      list_from_name(unname(unlist(gamma_env$gamma))),
       expr(str2lang(paste0(deparse(expr(!!str2lang(fm_str))), collapse = "")))
     )
   }
+
+
 
   get_ssr <- function(gammas, fm, weights = NULL, data = model_df){
     fm <- do.call(get_fm_fun(fm), as.list(gammas))
@@ -204,17 +224,18 @@ train_thrreg <- function(.data, specials, ...){
 
     fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
     if(anyNA(coef(fit))){
-      # if(anyNA(coef(fit)[-3]))
-      #   warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
+      if(kernel_est)
+        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
       return(Inf)
     }
     sum(resid(fit)^2)
   }
 
-  kernel_est <- FALSE
   if(kernel_est){
+    kernel <- gamma_env$gamma_special$fee
     model_df <- bind_cols(model_df,
-                          tibble(!!kernel$var_name := kernel$var))
+                          tibble(!!kernel$var_name := kernel$var) %>%
+                            select(!any_of(colnames(model_df))))
     kernel_grid <- kernel$var
     # kernel_grid <- do.call(seq, c(as.list(range(kernel$var)), list(length.out = kernel$n)))
 
@@ -231,18 +252,33 @@ train_thrreg <- function(.data, specials, ...){
 
     coef_path <- list()
     gamma_path <- list()
+    ssr_path <- list()
 
     # 1
-    all_gamma_grids <- lapply(kernel_weight, function(w) stats::na.omit(unique(abs(y_1[w>0]))))
+    term_compared <- rhs[[1]]$ind$ind_expression[[1]]
+    temp_var <- model_df %>%
+      as_tibble() %>%
+      dplyr::transmute(var = !!term_compared) %>%
+      unlist() %>%
+      unname()
+    all_gamma_grids <- lapply(
+      kernel_weight,
+      function(w) {
+        stats::na.omit(unique(temp_var[w>0]))
+      }
+    )
+
 
     which_min <- pbapply::pblapply(seq_along(all_gamma_grids), function(i){
       # which_min <- lapply(seq_along(gamma_grids), function(i){
       i <- enexpr(i)
       eval(expr(sapply(
-        all_gamma_grids[[!!i]], get_ssr,
-        fm = get_full_fm(gamma),
-        weights = kernel_weight[[!!i]][kernel_weight[[!!i]]>0],
-        data = model_df[kernel_weight[[!!i]]>0,])
+        all_gamma_grids[[!!i]] %>%
+          lapply(`names<-`, gamma_env$gamma[[1]]),
+        get_ssr,
+        fm = fm,
+        weights = kernel_weight[[!!i]],
+        data = model_df)
       ))
     }) %>%
       sapply(which.min)
@@ -250,18 +286,21 @@ train_thrreg <- function(.data, specials, ...){
     min_gamma <- mapply(function(.x, .i).x[.i], all_gamma_grids, which_min)
 
 
-    model_df_k <- tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
-      distinct() %>%
-      dplyr::inner_join(model_df, by = rlang::as_string(kernel$var_name)) %>%
-      tidyr::drop_na(!!sym(resp_1))
+    model_df_k <- model_df %>%
+      # mutate(!!rhs[[1]]$xreg$expression) %>%
+      left_join(
+        tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
+          distinct(),
+        by = as_string(kernel$var_name)
+      )
 
 
-
+    pb <- lazybar::lazyProgressBar(kernel$max_iter)
     for(iter in seq_len(kernel$max_iter)){
       # !is.na(model_df_k$.gamma)
       # 2
-
-      model_k <- eval(expr(lm(!!get_full_fm(expr(.gamma)), data = model_df_k)))
+      model_k <- eval(expr(lm(!!get_fm_fun(fm)(expr(.gamma)), data = model_df_k)))
+      ssr_path[[iter]] <- sum((residuals(model_k))^2)
 
       coef_k <- coef_path[[iter]] <- coef(model_k)
 
@@ -277,32 +316,36 @@ train_thrreg <- function(.data, specials, ...){
         mapply(function(vec, coef) vec*coef,
                vec = ., coef = coef_k[other_x_name])
       resp_value <- getElement(model_frame, resp)
-      resp_1_value <- getElement(model_frame,resp_1)
+
       item_before <- resp_value -
         coef_k[["(Intercept)"]] -
         rowSums(other_x_value)
+
+      resp_1_value <- getElement(model_frame, deparse(rhs[[1]]$xreg$expression))
       item_times <- resp_1_value *
         coef_k[all_x_name[grepl("\\.gamma", all_x_name)]]
+
       find_multiplier_c <- function(gamma){
         (item_before -
            item_times *
            (resp_1_value < gamma))^2
       }
 
+      temp_grids <- model_df %>%
+        as_tibble() %>%
+        dplyr::transmute( !!rhs[[1]]$ind$ind_expression[[1]]) %>%
+        unlist(use.names =FALSE)
+
       # res_c <- lapply(kernel_weight, function(weights){
       gamma_res <- res_c <- sapply(kernel_weight, function(weights){
-        idx <- sapply(abs(unique(kernel$var[weights>0])),
+        idx <- sapply(unique(temp_grids[weights>0]),
                       function(gamma){
                         a <- find_multiplier_c(gamma)
                         b <- weights[!`[<-`(which_drop, 1, TRUE)] # drop the first with na
-                        # if(length(a)!=length(b)) {
-                        #   browser()
-                        # }
                         sum(a*b)
-                        # sum(find_multiplier_c(gamma) * weights[!which_drop])
                       }) %>%
           which.min()
-        unique(kernel$var[weights>0])[idx]
+        unique(temp_grids[weights>0])[idx]
       })
 
       # gamma_res <- sapply(res_c, function(x) x$minimum)
@@ -311,6 +354,7 @@ train_thrreg <- function(.data, specials, ...){
         select(-.gamma) %>%
         dplyr::left_join(distinct(gamma_path[[iter]]), by = as_string(kernel$var_name))
 
+      pb$tick()$print()
       if(iter>1){
         if(norm(coef_path[[iter]] - coef_path[[iter-1]], "2")< 1){
           break
@@ -319,21 +363,23 @@ train_thrreg <- function(.data, specials, ...){
 
     }
 
-    path <- list(coef_path = coef_path,
+    path <- list(ssr_path = ssr_path,
+                 coef_path = coef_path,
                  gamma_path = gamma_path)
     gamma_grid <- gamma_res
     .gamma <-  gamma_path[iter]
 
-    interpo_func <- approxfun(.gamma[[1]]$fee, y = .gamma[[1]]$.gamma, rule = 2)
+    interpo_func <- approxfun(getElement(.gamma[[1]], as_string(kernel$var_name)),
+                              y = .gamma[[1]]$.gamma, rule = 2)
     df <- model_df %>%
-      left_join(.gamma[[1]], by = as_string(kernel$var_name)) %>%
+      as_tibble() %>%
+      left_join(distinct(.gamma[[1]]), by = as_string(kernel$var_name)) %>%
       mutate(.gamma = case_when(
         is.na(.gamma) ~ interpo_func(!!kernel$var_name),
         TRUE ~ .gamma
       ))
 
-    mdl <- eval(expr(lm(!!get_full_fm(expr(.gamma)), data = df)))
-
+    mdl <- eval(expr(lm(!!get_fm_fun(fm)(expr(.gamma)), data = df)))
 
 
 
