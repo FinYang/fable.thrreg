@@ -65,3 +65,7 @@ gsub_multir <- function(pattern, replacements, x){
 
 }
 
+
+str_extract_perl <- function(string, pattern) {
+  regmatches(string, gregexpr(pattern, string, perl = TRUE))
+}

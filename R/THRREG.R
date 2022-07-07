@@ -21,9 +21,11 @@ train_thrreg <- function(.data, specials, ...){
     sym(g)
   }, env = gamma_fun_env)
 
+
   eval_gamma_in_string <- function(string){
-    gamma_pattern <- "gamma\\(.*?\\)"
-    stringr::str_extract_all( string, gamma_pattern) %>%
+    browser()
+    gamma_pattern <- "gamma(\\((?:[^()]|(?1))*\\))"
+    str_extract_perl( string, gamma_pattern) %>%
       unlist() %>%
       map(str2lang) %>%
       map(eval_tidy, env = gamma_fun_env) %>%
