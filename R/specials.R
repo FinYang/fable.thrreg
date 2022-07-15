@@ -45,6 +45,7 @@ specials_thrreg <- new_specials(
   },
   gamma = function(id = NULL,
                    var = NULL,
+                   grid = NULL,
                    kernel = epaker,
                    min_points = NCOL(self$data) + 5,
                    bw = sd(var)/10, max_iter = 100){

@@ -37,7 +37,7 @@ train_thrreg <- function(.data, specials, ...){
   }
 
   replace_gamma_lang <- function(ind_expr){
-    ind_expr_str <- deparse(ind_expr)
+    ind_expr_str <- paste0(deparse(ind_expr), collapse = "")
     str2lang(eval_gamma_in_string(ind_expr_str))
 
   }
@@ -67,7 +67,7 @@ train_thrreg <- function(.data, specials, ...){
     if("ind" %in% names(x)) {
       ind_expr <- x$ind$expression
       ind_expr <- replace_gamma_lang(ind_expr)
-      gamma_env$gamma_special[[gamma_env$id[[length(gamma_env$id)]]]] <- x$ind$gamma
+      gamma_env$gamma_special[as.character(unlist(gamma_env$id))] <- x$ind[names(x$ind) == "gamma"]
 
       expr(I(!!x$xreg$expression * (!!ind_expr)))
     } else {
@@ -77,6 +77,9 @@ train_thrreg <- function(.data, specials, ...){
   )
 
   model_data <- squash_tibble(rhs, 3:4)
+
+  model_df <- .data %>%
+    bind_cols(select(model_data, !any_of(colnames(.))))
 
   # When there is one term
   one_term <- specials$one[[1]]
@@ -114,8 +117,7 @@ train_thrreg <- function(.data, specials, ...){
   n <- nrow(model_data)
   k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
 
-  model_df <- .data %>%
-    bind_cols(select(model_data, !any_of(colnames(.))))
+
 
 
   # Finding the gamma grids
@@ -158,13 +160,11 @@ train_thrreg <- function(.data, specials, ...){
         find_leaf() %>%
         sapply(deparse)
 
-      all_gamma_grids <-
-        expand.grid(
-          # seq(-5, 15, 0.1),
-          # seq(-15, 15, 0.1)
-          seq(-50, 50, 1),
-          seq(-500, 500, 1)
-        ) %>%
+      given_grids <- gamma_env$gamma_special %>%
+        lapply(getElement, "grid")
+      if(any(sapply(given_grids, is.null))) abort("You need to provide grid to search for gamma.")
+      all_gamma_grids <- given_grids %>%
+        do.call(expand.grid, .) %>%
         `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
         as_tibble() %>%
         # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
@@ -205,14 +205,14 @@ train_thrreg <- function(.data, specials, ...){
     data <- enexpr(data)
 
     if(length(gammas) == 2){
-      # test for multicolinearity
+      # test for identification
       test <- function(){
         temp_env <- new.env()
         purrr::walk2(names(gammas), gammas,assign, envir = temp_env)
         temp <- ind_single$ind$expression %>%
           replace_gamma_lang() %>%
           eval_tidy( data = eval(data), env = temp_env)
-        if((!any(temp, na.rm = TRUE)) || !any(!temp, na.rm = TRUE) ) {
+        if((sum(temp, na.rm = TRUE) <= k ) || (sum(!temp, na.rm = TRUE) <= k) ) {
           return(TRUE)
         }
         FALSE
