@@ -48,7 +48,8 @@ specials_thrreg <- new_specials(
                    grid = NULL,
                    kernel = epaker,
                    min_points = NCOL(self$data) + 5,
-                   bw = sd(var)/10, max_iter = 100){
+                   bw = sd(var)/10,
+                   max_iter = 100){
 
     var_name <- rlang::enexpr(var)
     bw <- rlang::enexpr(bw)

@@ -204,12 +204,12 @@ train_thrreg <- function(.data, specials, ...){
     weights <- enexpr(weights)
     data <- enexpr(data)
 
-    if(length(gammas) == 2){
+    if(length(gammas) == 2 || kernel_est){
       # test for identification
       test <- function(){
         temp_env <- new.env()
         purrr::walk2(names(gammas), gammas,assign, envir = temp_env)
-        temp <- ind_single$ind$expression %>%
+        temp <- ind_term[[1]]$ind$expression %>%
           replace_gamma_lang() %>%
           eval_tidy( data = eval(data), env = temp_env)
         if((sum(temp, na.rm = TRUE) <= k ) || (sum(!temp, na.rm = TRUE) <= k) ) {
@@ -224,14 +224,15 @@ train_thrreg <- function(.data, specials, ...){
 
     fit <- eval(expr(lm(!!fm, data = !!data, model = FALSE, weights = !!weights)))
     if(anyNA(coef(fit))){
-      if(kernel_est)
-        warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
+      # if(kernel_est)
+      #   warning("Not all coefficient can be estimated. Consider increase bandwidth bw or raise number of min_points.")
       return(Inf)
     }
     sum(resid(fit)^2)
   }
 
   if(kernel_est){
+    # browser()
     kernel <- gamma_env$gamma_special$fee
     model_df <- bind_cols(model_df,
                           tibble(!!kernel$var_name := kernel$var) %>%
@@ -247,8 +248,9 @@ train_thrreg <- function(.data, specials, ...){
 
     which_drop <- kernel_weight %>%
       sapply(function(x) sum(x>0)<kernel$min_points)
-    kernel_grid <- kernel_grid[!which_drop]
-    kernel_weight <- kernel_weight[!which_drop]
+    if(all(which_drop)) abort("Not enough data under current min_points.")
+    kernel_grid_f <- function() kernel_grid[!which_drop]
+    kernel_weight_f <- function() kernel_weight[!which_drop]
 
     coef_path <- list()
     gamma_path <- list()
@@ -262,7 +264,7 @@ train_thrreg <- function(.data, specials, ...){
       unlist() %>%
       unname()
     all_gamma_grids <- lapply(
-      kernel_weight,
+      kernel_weight_f(),
       function(w) {
         stats::na.omit(unique(temp_var[w>0]))
       }
@@ -277,7 +279,7 @@ train_thrreg <- function(.data, specials, ...){
           lapply(`names<-`, gamma_env$gamma[[1]]),
         get_ssr,
         fm = fm,
-        weights = kernel_weight[[!!i]],
+        weights = kernel_weight_f()[[!!i]],
         data = model_df)
       ))
     }) %>%
@@ -286,13 +288,15 @@ train_thrreg <- function(.data, specials, ...){
     min_gamma <- mapply(function(.x, .i).x[.i], all_gamma_grids, which_min)
 
 
+
+    # browser()
+
+    gamma_col <- numeric(nrow(model_df))
+    gamma_col[!which_drop] <- min_gamma
+    gamma_col[which_drop] <- NA
+
     model_df_k <- model_df %>%
-      # mutate(!!rhs[[1]]$xreg$expression) %>%
-      left_join(
-        tibble(!!kernel$var_name:= kernel_grid, .gamma = min_gamma) %>%
-          distinct(),
-        by = as_string(kernel$var_name)
-      )
+      mutate(.gamma=gamma_col)
 
 
     pb <- lazybar::lazyProgressBar(kernel$max_iter)
@@ -326,30 +330,45 @@ train_thrreg <- function(.data, specials, ...){
         coef_k[all_x_name[grepl("\\.gamma", all_x_name)]]
 
       find_multiplier_c <- function(gamma){
-        (item_before -
-           item_times *
-           (resp_1_value < gamma))^2
+        temp <- resp_1_value < gamma
+        if(sum(temp, na.rm = TRUE) < k || sum(!temp, na.rm = TRUE)>k) return(Inf)
+        (item_before - item_times *temp)^2
       }
 
       temp_grids <- model_df %>%
         as_tibble() %>%
         dplyr::transmute( !!rhs[[1]]$ind$ind_expression[[1]]) %>%
         unlist(use.names =FALSE)
-
       # res_c <- lapply(kernel_weight, function(weights){
-      gamma_res <- res_c <- sapply(kernel_weight, function(weights){
-        idx <- sapply(unique(temp_grids[weights>0]),
-                      function(gamma){
-                        a <- find_multiplier_c(gamma)
-                        b <- weights[!`[<-`(which_drop, 1, TRUE)] # drop the first with na
-                        sum(a*b)
-                      }) %>%
-          which.min()
-        unique(temp_grids[weights>0])[idx]
-      })
+      temp_which_drop <- which_drop
+      gamma_res <- res_c <- purrr::map2_dbl(
+        kernel_weight_f(),
+        seq_along(kernel_weight)[!which_drop],
+        function(weights, ix){
+          idx <- sapply(unique(temp_grids[weights>0]),
+                        function(gamma){
+                          a <- find_multiplier_c(gamma)
+                          if(any(is.infinite(a))) return(Inf)
+                          b <- weights[!`[<-`(which_drop, 1, TRUE)] # drop the first with na
+                          # stopifnot(length(a) == length(b))
+                          # if(length(a) != length(b)) {browser();abort()}
+                          out <- sum(a*b)
+                          stopifnot(!all(is.na(out)))
+                          out
+                        })
+          if(all(is.infinite(idx))) {
+            temp_which_drop[ix] <<- TRUE
+            return(NA)
+          }
+
+          # if(ix == 66) browser()
+          return(unique(temp_grids[weights>0])[which.min(idx)])
+        })
+
+      which_drop <- temp_which_drop
 
       # gamma_res <- sapply(res_c, function(x) x$minimum)
-      gamma_path[[iter]] <- tibble(!!sym(kernel$var_name):=kernel_grid, .gamma = gamma_res)
+      gamma_path[[iter]] <- tibble(!!sym(kernel$var_name):=kernel_grid_f(), .gamma = na.omit(gamma_res))
       model_df_k <- model_df_k %>%
         select(-.gamma) %>%
         dplyr::left_join(distinct(gamma_path[[iter]]), by = as_string(kernel$var_name))
