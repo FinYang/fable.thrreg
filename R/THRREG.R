@@ -80,17 +80,13 @@ train_thrreg <- function(.data, specials, ...){
 
 
   # reorder (multi_regime)
-  temp_idx <- rank(sapply(ind_term, function(ind) max(sapply(ind$ind[names(ind$ind) == "gamma"], getElement, "id"))))
+  temp_idx <- rank(sapply(ind_term, function(ind) mean(sapply(ind$ind[names(ind$ind) == "gamma"], getElement, "id"))))
   ind_term[temp_idx] <- ind_term[order(temp_idx)]
   rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][temp_idx] <- rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][order(temp_idx)]
   gamma_env$gamma[temp_idx] <- gamma_env$gamma[order(temp_idx)]
   gamma_env$id[temp_idx] <- gamma_env$id[order(temp_idx)]
   gamma_env$gamma_special[temp_idx] <- gamma_env$gamma_special[order(temp_idx)]
 
-
-  names(ind_term[[2]]$ind)
-
-  ind_term[[2]]$ind$gamma$id
 
   model_data <- squash_tibble(rhs, 3:4)
 
@@ -138,11 +134,12 @@ train_thrreg <- function(.data, specials, ...){
 
     multi_regime <- FALSE
     if(length(unlist(gamma_env$gamma)) == length(ind_term)){
-      get_grid_single_gamma <- function(ind_term, gamma_name, data_eval = NULL, weights_lgl){
+      get_grid_single_gamma <- function(ind_term, gamma_name, data_eval = NULL, weights_lgl = NULL, num_gamma_left = 0){
         stopifnot(length(ind_term)==1)
         stopifnot(length(gamma_name)==1)
         all_gamma_grids <- map(ind_term, function(x){
           data_eva <- data_eval %||% x$ind$xreg$xregs
+          if(is.null(weights_lgl)) weights_lgl <- rep(TRUE, nrow(data_eva))
           eval_tidy(x$ind$ind_expression[[1]], data = data_eva)[weights_lgl]
         }
         ) %>%
@@ -151,7 +148,7 @@ train_thrreg <- function(.data, specials, ...){
                    unlist() %>%
                    unique() %>%
                    sort() %>%
-                   .[seq(k, length(.)-k, by = 1)] )
+                   .[seq(k+num_gamma_left*2*k, length(.)-k, by = 1)] )
         all_gamma_grids <- all_gamma_grids %>%
           expand.grid() %>%
           split(row(.)) %>%
@@ -445,13 +442,28 @@ train_thrreg <- function(.data, specials, ...){
         if(missing(id)) abort("Please assign id to gamma.")
         sym(paste0(".gamma_", id))
       }, env = gamma_fun_env)
+      gamma_exprs<- lapply(
+        ind_term,
+        function(x) {
+          y <- replace_gamma_lang(x$ind$expression)
+          call2(`&`, call2(`!`, y),
+                expr(!is.na(!!y)))
+        } )
+
+      if(is.null(one_term)) {
+        gamma_exprs <- call2(`>=`, ind_term[[1]]$ind$ind_expression[[1]], expr(gamma(1))) %>%
+          replace_gamma_lang() %>%
+          {call2(`&`, call2(`!`, .), expr(!is.na(!!.)))} %>%
+          c(gamma_exprs)
+      }
 
       temp_weights <- rep(1, nrow(model_df))
       temp_env <- new.env()
       for(i in seq_along(gamma_env$gamma)){
         all_gamma_grids <- get_grid_single_gamma(ind_term[i], gamma_name = gamma_env$gamma[i],
                                                  data_eval = model_df,
-                                                 weights_lgl = as.logical(temp_weights))
+                                                 weights_lgl = as.logical(temp_weights),
+                                                 num_gamma_left = length(gamma_env$gamma) - i+1)
 
         gamma_in_fm <- fm_top %>%
           find_leaf() %>%
@@ -463,29 +475,25 @@ train_thrreg <- function(.data, specials, ...){
           out
         })
         ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm_top, data = model_df, weights = temp_weights)
-        path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
+        # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
         .gamma <- unique(all_gamma_grids[[which.min(ssr)]])
 
         assign(gamma_env$gamma[[i]], .gamma, envir = temp_env)
-        gamma_exprs<- lapply(
-          ind_term[seq_len(i)],
-          function(x) {
-            y <- replace_gamma_lang(x$ind$expression)
-            call2(`&`, call2(`!`, y),
-                  expr(!is.na(!!y)))
-          } )
+
         temp_weights <- lapply(
-          gamma_exprs,
+          gamma_exprs[seq_len(i)],
           eval_tidy,
           data = model_df,
           env = temp_env) %>%
           reduce(`&`) %>%
           as.numeric()
+        if(sum(temp_weights)<=2*k) {
+          abort("Sequential optimisation does not leave enough obs for the rest gammas.")
+        }
 
       }
       .gamma <- unlist(as.list(temp_env, all.names = TRUE))
       path <- NULL
-
     } else {
 
       ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm)
