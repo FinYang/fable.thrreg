@@ -35,7 +35,7 @@ specials_thrreg <- new_specials(
     names(out)[names(out)==""] <- sapply(out[names(out)==""], call_name)
     out <- map(out, eval_tidy, data = self$data, env = self$specials)
     out$expression <- x
-    out$ind_expression <- find_leaf(x, include = c("<", "<=", ">", ">=")) %>%
+    out$ind_expression <- find_leaf(x, include = c("<", "<=", ">", ">=", "&")) %>%
       {.[!sapply(., function(y) is_call_name(y, "gamma"))]}
 
     out
