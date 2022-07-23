@@ -78,6 +78,20 @@ train_thrreg <- function(.data, specials, ...){
   }
   )
 
+
+  # reorder (multi_regime)
+  temp_idx <- rank(sapply(ind_term, function(ind) max(sapply(ind$ind[names(ind$ind) == "gamma"], getElement, "id"))))
+  ind_term[temp_idx] <- ind_term[order(temp_idx)]
+  rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][temp_idx] <- rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][order(temp_idx)]
+  gamma_env$gamma[temp_idx] <- gamma_env$gamma[order(temp_idx)]
+  gamma_env$id[temp_idx] <- gamma_env$id[order(temp_idx)]
+  gamma_env$gamma_special[temp_idx] <- gamma_env$gamma_special[order(temp_idx)]
+
+
+  names(ind_term[[2]]$ind)
+
+  ind_term[[2]]$ind$gamma$id
+
   model_data <- squash_tibble(rhs, 3:4)
 
   model_df <- .data %>%
