@@ -8,6 +8,9 @@ epaker <- function(x) {
   (3/4)*(1-x^2)*(abs(x)<=1)
 }
 
+#' @param min_points Minimum number of points included in a kernel window for
+#' the gride to be used.
+#' If NULL, twice the number of exogenous variables for identification.
 specials_thrreg <- new_specials(
   delta = function(delta = FALSE){
     if(missing(delta))
@@ -47,7 +50,7 @@ specials_thrreg <- new_specials(
                    var = NULL,
                    grid = NULL,
                    kernel = epaker,
-                   min_points = NCOL(self$data) + 5,
+                   min_points = NULL,
                    bw = sd(var)/10,
                    max_iter = 100){
 

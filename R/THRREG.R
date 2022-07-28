@@ -69,7 +69,9 @@ train_thrreg <- function(.data, specials, ...){
     if("ind" %in% names(x)) {
       ind_expr <- x$ind$expression
       ind_expr <- replace_gamma_lang(ind_expr)
-      gamma_env$gamma_special[as.character(sapply(x$ind[names(x$ind) == "gamma"], function(y)y$id))] <- x$ind[names(x$ind) == "gamma"]
+      id <- sapply(x$ind[names(x$ind) == "gamma"], function(y)y$id)
+      if(is.null(unlist(id))) id <- gamma_env$id
+      gamma_env$gamma_special[as.character(id)] <- x$ind[names(x$ind) == "gamma"]
 
       expr(I(!!x$xreg$expression * (!!ind_expr)))
     } else {
@@ -79,14 +81,15 @@ train_thrreg <- function(.data, specials, ...){
   )
 
 
-  # reorder (multi_regime)
-  temp_idx <- rank(sapply(ind_term, function(ind) mean(sapply(ind$ind[names(ind$ind) == "gamma"], getElement, "id"))))
-  ind_term[temp_idx] <- ind_term[order(temp_idx)]
-  rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][temp_idx] <- rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][order(temp_idx)]
-  gamma_env$gamma[temp_idx] <- gamma_env$gamma[order(temp_idx)]
-  gamma_env$id[temp_idx] <- gamma_env$id[order(temp_idx)]
-  gamma_env$gamma_special[temp_idx] <- gamma_env$gamma_special[order(temp_idx)]
-
+  if(is.numeric(unlist(gamma_env$id))){
+    # reorder (multi_regime)
+    temp_idx <- order(sapply(ind_term, function(ind_term) mean(sapply(ind_term$ind[names(ind_term$ind) == "gamma"], getElement, "id"))))
+    ind_term[temp_idx] <- ind_term[order(temp_idx)]
+    rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][temp_idx] <- rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][order(temp_idx)]
+    gamma_env$gamma[temp_idx] <- gamma_env$gamma[order(temp_idx)]
+    gamma_env$id[temp_idx] <- gamma_env$id[order(temp_idx)]
+    gamma_env$gamma_special[temp_idx] <- gamma_env$gamma_special[order(temp_idx)]
+  }
 
   model_data <- squash_tibble(rhs, 3:4)
 
@@ -116,6 +119,7 @@ train_thrreg <- function(.data, specials, ...){
   kernel_est <- FALSE
   if(any(sapply(gamma_env$gamma_special, function(x) !is.null(x$var)))){
     kernel_est <- TRUE
+    multi_regime <- FALSE
     if(length(gamma_env$id)>1)
       abort("Only one gamma term can appear in the formula when using kernel estimation.")
   }
@@ -242,11 +246,12 @@ train_thrreg <- function(.data, specials, ...){
     if(length(gammas) == 2 || kernel_est){
       # test for identification
       test <- function(){
+        if(is.null(weights)) weights <- rep(1, nrow(eval(data)))
         temp_env <- new.env()
         purrr::walk2(names(gammas), gammas,assign, envir = temp_env)
         temp <- ind_term[[1]]$ind$expression %>%
           replace_gamma_lang() %>%
-          eval_tidy( data = eval(data), env = temp_env)
+          eval_tidy( data = eval(data)[eval(weights)>0,], env = temp_env)
         if((sum(temp, na.rm = TRUE) <= k ) || (sum(!temp, na.rm = TRUE) <= k) ) {
           return(TRUE)
         }
@@ -279,6 +284,7 @@ train_thrreg <- function(.data, specials, ...){
       grid = kernel_grid,
       bw = with(self$data, with(kernel, eval(bw))),
       SIMPLIFY = FALSE)
+    if(is.null(kernel$min_points)) kernel$min_points <- 2*k
 
     which_drop <- kernel_weight %>%
       sapply(function(x) sum(x>0)<kernel$min_points)
@@ -500,7 +506,8 @@ train_thrreg <- function(.data, specials, ...){
       path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
       .gamma <- all_gamma_grids[[which.min(ssr)]]
     }
-    mdl <- eval(expr(lm(!!do.call(get_fm_fun(fm), as.list(.gamma)), data = model_df)))
+    mdl <- eval(expr(lm(!!do.call(get_fm_fun(fm), as.list(.gamma)), data = model_df,
+                        x=TRUE, y=TRUE)))
 
     .resid <- residuals(mdl)
   }
@@ -511,7 +518,13 @@ train_thrreg <- function(.data, specials, ...){
            .gamma = .gamma,
            .path = path,
            .resid = .resid
-         )),
+         ),
+         constrained = !is.null(one_term),
+         multi_regime = multi_regime,
+         kernel = kernel_est,
+         data = self$data
+
+    ),
     class = "fbl_thrreg"
   )
 
