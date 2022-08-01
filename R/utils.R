@@ -83,3 +83,22 @@ gsub_multi <- function(pattern = NULL, replacements, x, strings = NULL, ...){
 str_extract_perl <- function(string, pattern) {
   regmatches(string, gregexpr(pattern, string, perl = TRUE))
 }
+
+
+#' @param x numeric vector
+#' @param value centre
+#' @param num number of closest to find
+#' @param exclude logical vector. Exclude these observations when finding closest
+#' @return logical vector
+closest <- function(x, value, num, exclude = rep(FALSE, length(x))) {
+  output <- logical(length(x))
+  dist <- x-value
+
+  dist[is.na(dist)] <- Inf
+  dist[exclude] <- Inf
+  output[dist == 0] <- TRUE
+  output[dist<0] <- rank(abs(dist[dist<0]), ties.method = "min") <=num
+  output[dist>0] <- rank(abs(dist[dist>0]), ties.method = "min") <=num
+  output
+
+}

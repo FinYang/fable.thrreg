@@ -138,9 +138,10 @@ train_thrreg <- function(.data, specials, ...){
 
     multi_regime <- FALSE
     if(length(unlist(gamma_env$gamma)) == length(ind_term)){
-      get_grid_single_gamma <- function(ind_term, gamma_name, data_eval = NULL, weights_lgl = NULL, num_gamma_left = 0){
+      get_grid_single_gamma <- function(ind_term, gamma_name, data_eval = NULL, weights_lgl = NULL){
         stopifnot(length(ind_term)==1)
         stopifnot(length(gamma_name)==1)
+        stopifnot(is.null(weights_lgl) || is.logical(weights_lgl))
         all_gamma_grids <- map(ind_term, function(x){
           data_eva <- data_eval %||% x$ind$xreg$xregs
           if(is.null(weights_lgl)) weights_lgl <- rep(TRUE, nrow(data_eva))
@@ -152,7 +153,7 @@ train_thrreg <- function(.data, specials, ...){
                    unlist() %>%
                    unique() %>%
                    sort() %>%
-                   .[seq(k+num_gamma_left*2*k, length(.)-k, by = 1)] )
+                   .[seq(k, length(.)-k, by = 1)] )
         all_gamma_grids <- all_gamma_grids %>%
           expand.grid() %>%
           split(row(.)) %>%
@@ -444,33 +445,21 @@ train_thrreg <- function(.data, specials, ...){
   } else {
     if(multi_regime){
 
-      assign("gamma", function(id, ...){
-        if(missing(id)) abort("Please assign id to gamma.")
-        sym(paste0(".gamma_", id))
-      }, env = gamma_fun_env)
-      gamma_exprs<- lapply(
-        ind_term,
-        function(x) {
-          y <- replace_gamma_lang(x$ind$expression)
-          call2(`&`, call2(`!`, y),
-                expr(!is.na(!!y)))
-        } )
+      term_com <- unique(sapply(ind_term, function(x) x$ind$ind_expression))
 
-      if(is.null(one_term)) {
-        gamma_exprs <- call2(`>=`, ind_term[[1]]$ind$ind_expression[[1]], expr(gamma(1))) %>%
-          replace_gamma_lang() %>%
-          {call2(`&`, call2(`!`, .), expr(!is.na(!!.)))} %>%
-          c(gamma_exprs)
-      }
+      if(length(term_com)!=1)
+        abort("Term to compare in ind terms should be identical.")
 
-      temp_weights <- rep(1, nrow(model_df))
+      term_com <- term_com[[1]]
+
+
+      temp_weights_lgl <- rep(TRUE, nrow(model_df))
       temp_env <- new.env()
       for(i in seq_along(gamma_env$gamma)){
+
         all_gamma_grids <- get_grid_single_gamma(ind_term[i], gamma_name = gamma_env$gamma[i],
                                                  data_eval = model_df,
-                                                 weights_lgl = as.logical(temp_weights),
-                                                 num_gamma_left = length(gamma_env$gamma) - i+1)
-
+                                                 weights_lgl = temp_weights_lgl)
         gamma_in_fm <- fm_top %>%
           find_leaf() %>%
           sapply(deparse) %>%
@@ -480,25 +469,24 @@ train_thrreg <- function(.data, specials, ...){
           names(out) <- gamma_in_fm
           out
         })
-        ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm_top, data = model_df, weights = temp_weights)
+        ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
         # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
         .gamma <- unique(all_gamma_grids[[which.min(ssr)]])
 
         assign(gamma_env$gamma[[i]], .gamma, envir = temp_env)
 
-        temp_weights <- lapply(
-          gamma_exprs[seq_len(i)],
-          eval_tidy,
-          data = model_df,
-          env = temp_env) %>%
-          reduce(`&`) %>%
-          as.numeric()
-        if(sum(temp_weights)<=2*k) {
-          abort("Sequential optimisation does not leave enough obs for the rest gammas.")
-        }
+        temp_weights_lgl <- term_com %>%
+          eval_tidy(data = model_df) %>%
+          {!closest(., .gamma, k+length(gamma_env$gamma), exclude = !temp_weights_lgl)} %>%
+          `&`(temp_weights_lgl)
+
 
       }
       .gamma <- unlist(as.list(temp_env, all.names = TRUE))
+
+      .gamma <- sort(.gamma, decreasing = TRUE)
+      names(.gamma) <- sort(unlist(gamma_env$gamma))
+
       path <- NULL
     } else {
 
