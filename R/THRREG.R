@@ -128,7 +128,9 @@ train_thrreg <- function(.data, specials, ...){
 
   resp <- measured_vars(.data)
   n <- nrow(model_data)
-  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
+  # k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
+  # k <- length(rhs)
+  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp))) + length(rhs) + 1
 
 
 
