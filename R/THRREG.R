@@ -512,7 +512,8 @@ train_thrreg <- function(.data, specials, ...){
          constrained = !is.null(one_term),
          multi_regime = multi_regime,
          kernel = kernel_est,
-         data = self$data
+         data = self$data,
+         num_regime = length(gamma_env$gamma)+1
 
     ),
     class = "fbl_thrreg"
