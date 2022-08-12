@@ -81,6 +81,7 @@ train_thrreg <- function(.data, specials, ...){
   )
 
 
+
   if(is.numeric(unlist(gamma_env$id))){
     # reorder (multi_regime)
     temp_idx <- order(sapply(ind_term, function(ind_term) mean(sapply(ind_term$ind[names(ind_term$ind) == "gamma"], getElement, "id"))))
@@ -91,7 +92,9 @@ train_thrreg <- function(.data, specials, ...){
     gamma_env$gamma_special[temp_idx] <- gamma_env$gamma_special[order(temp_idx)]
   }
 
-  model_data <- squash_tibble(rhs, 3:4)
+  model_data <- squash_tibble(rhs, 3) %>%
+    bind_cols(select(squash_tibble(rhs[sapply(rhs, length)!=1], 4),
+                     !any_of(colnames(.))))
 
   model_df <- .data %>%
     bind_cols(select(model_data, !any_of(colnames(.))))
@@ -113,8 +116,9 @@ train_thrreg <- function(.data, specials, ...){
     one_data <- squash_tibble(one_data, 2:3)
     model_df <- model_df %>%
       bind_cols(select(one_data, !any_of(colnames(.))))
+  } else {
+    one_expr <- NULL
   }
-
 
   kernel_est <- FALSE
   if(any(sapply(gamma_env$gamma_special, function(x) !is.null(x$var)))){
@@ -178,16 +182,6 @@ train_thrreg <- function(.data, specials, ...){
       }
 
       ind_single <- ind_term[[1]]
-      gamma_idx <- ind_single$ind$ind_expression %>%
-        map(function(x) find_leaf(x, exclude = "gamma") %>%
-              sapply(is_call_name, "gamma") %>%
-              any()) %>%
-        unlist() %>%
-        which()
-
-      x2 <- ind_single$ind$ind_expression[[gamma_idx]] %>%
-        find_leaf() %>%
-        sapply(deparse)
 
       given_grids <- gamma_env$gamma_special %>%
         lapply(getElement, "grid")
@@ -199,6 +193,20 @@ train_thrreg <- function(.data, specials, ...){
         # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
         split(seq_len(nrow(.))) %>%
         lapply(unlist)
+
+      # for test purpose
+      gamma_idx <- ind_single$ind$ind_expression %>%
+        map(function(x) find_leaf(x, exclude = "gamma") %>%
+              sapply(is_call_name, "gamma") %>%
+              any()) %>%
+        unlist() %>%
+        which()
+      based_var <- ind_term[[1]]$ind$ind_expression[[gamma_idx]] %>%
+        replace_gamma_lang() %>%
+        break_interaction() %>%
+        map_chr(deparse) %>%
+        .[!grepl(".gamma", ., fixed = TRUE)] %>%
+        sym()
 
     }
   }
@@ -262,6 +270,19 @@ train_thrreg <- function(.data, specials, ...){
       }
 
       if(test()) return(Inf)
+    }
+
+    if(length(gammas) == 2 ){
+      # test for intersection
+      test2 <- function(){
+        if(is.null(weights)) weights <- rep(1, nrow(eval(data)))
+
+        ra <- eval_tidy(based_var, data = eval(data)[eval(weights)>0,]) %>%
+          range()
+        between(-gammas[[1]]/gammas[[2]], ra[[1]], ra[[2]])
+      }
+
+      if(test2()) return(Inf)
     }
 
 
@@ -471,7 +492,7 @@ train_thrreg <- function(.data, specials, ...){
           names(out) <- gamma_in_fm
           out
         })
-        ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
+        ssr <- all_gamma_grids %>% sapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
         # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
         .gamma <- unique(all_gamma_grids[[which.min(ssr)]])
 
@@ -513,7 +534,10 @@ train_thrreg <- function(.data, specials, ...){
          multi_regime = multi_regime,
          kernel = kernel_est,
          data = self$data,
-         num_regime = length(gamma_env$gamma)+1
+         num_regime = length(gamma_env$gamma)+1,
+         fms = list(one_expr = one_term$expression,
+                    ind_exprs= ind_term %>%
+                      map(function(x) x$ind$expression))
 
     ),
     class = "fbl_thrreg"
@@ -543,8 +567,8 @@ residuals.fbl_thrreg <- function(object, ...){
 tidy.fbl_thrreg <- function(x, ...){
   broom::tidy(x$model, ...) %>%
     # broom::tidy(x$model) %>%
-    mutate(estimate = `class<-`(estimate, class(x$est$.gamma))) %>%
-    bind_rows(tibble(term = names(x$est$.gamma), estimate = x$est$.gamma))
+    # mutate(estimate = `class<-`(estimate, class(x$est$.gamma))) %>%
+    bind_rows(tibble(term = names(x$est$.gamma), estimate = as.numeric(x$est$.gamma)))
 
 }
 
