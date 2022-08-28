@@ -17,6 +17,7 @@ specials_thrreg <- new_specials(
       delta
   },
   one = function(arg){
+
     arg <- enexpr(arg)
     data <- break_interaction(arg, "*") %>%
       quietly_squash()
@@ -64,7 +65,16 @@ specials_thrreg <- new_specials(
     as.list(environment())
   },
   xreg = function(...) {
-    regs <- enexprs(...)
+    regs_before <- enexprs(...)
+    regs <- list()
+    for(z in regs_before) {
+      if(is_call_name(z, "(")){
+        regs <- c(regs, break_interaction(z[[2]]))
+        } else {
+          regs <- c(regs, z)
+        }
+    }
+    regs <- lapply(regs, function(z) if(is_call_name(z, "(")) z[[2]] else z)
 
     if(any(sapply(regs[sapply(regs, is_call)], call_name) == "gamma"))
       stop("gamma() in the formula should used inside ind()")
@@ -83,6 +93,7 @@ specials_thrreg <- new_specials(
     call_xreg <- c(parsed_regs[!bare_xreg],
                    list(list(unlist(parsed_regs[bare_xreg])))
     )
+
     xreg<- map(call_xreg, function(xcall) {
       bare_xreg <- !sapply(xcall, function(x) all(sapply(x, function(y) is_call_name(y,"ind"))))
       xcall[["xreg"]] <- expr(xreg(!!!xcall[[which(bare_xreg)]]))
@@ -92,7 +103,7 @@ specials_thrreg <- new_specials(
     })
     return(xreg)
   },
-  .required_specials = c("delta"),
+  # .required_specials = c("delta"),
   .xreg_specials = c("gamma", "ind")
 )
 

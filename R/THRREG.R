@@ -72,8 +72,12 @@ train_thrreg <- function(.data, specials, ...){
       id <- sapply(x$ind[names(x$ind) == "gamma"], function(y)y$id)
       if(is.null(unlist(id))) id <- gamma_env$id
       gamma_env$gamma_special[as.character(id)] <- x$ind[names(x$ind) == "gamma"]
+      if(is_call_name(x$xreg$expression, "+")){
 
-      expr(I(!!x$xreg$expression * (!!ind_expr)))
+        expr(!!x$xreg$expression : I(as.numeric(!!ind_expr)))
+      } else {
+        expr(I(!!x$xreg$expression * (!!ind_expr)))
+      }
     } else {
       x$xreg$expression
     }
@@ -81,6 +85,18 @@ train_thrreg <- function(.data, specials, ...){
   )
 
 
+num_unique_ind <- rhs %>%
+    map(function(x) {
+      if("ind" %in% names(x)){
+        x$xreg$expression
+      }
+      }) %>%
+    .[!sapply(.,is.null)] %>%
+    unique() %>%
+    length()
+if(num_unique_ind > 1) {
+  stop("The variables whose coefficients vary in different regimes need to be identical.")
+}
 
   if(is.numeric(unlist(gamma_env$id))){
     # reorder (multi_regime)
