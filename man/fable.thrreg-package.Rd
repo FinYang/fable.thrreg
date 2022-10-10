@@ -4,8 +4,30 @@
 \name{fable.thrreg-package}
 \alias{fable.thrreg}
 \alias{fable.thrreg-package}
-\title{fable.thrreg: What the Package Does (Title Case)}
+\title{fable.thrreg: Threshold Regression Modelling Interface for `fable`}
 \description{
-More about what it does (maybe more than one line) Use four spaces when indenting paragraphs within the Description.
+Allows threshold to be used in a tidy workflow with the modelling interface of 'fabletools'.
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/FinYang/fable.thrreg}
+  \item Report bugs at \url{https://github.com/FinYang/fable.thrreg/issues/}
+}
+
+}
+\author{
+\strong{Maintainer}: Yangzhuoran Fin Yang \email{yangyangzhuoran@gmail.com} (\href{https://orcid.org/0000-0002-1232-8017}{ORCID}) (https://github.com/FinYang)
+
+Authors:
+\itemize{
+  \item Bonsoo Koo (https://github.com/bonsook)
+}
+
+Other contributors:
+\itemize{
+  \item Ze Yu Zhong (https://github.com/zeyuz35) [contributor]
+}
+
 }
 \keyword{internal}

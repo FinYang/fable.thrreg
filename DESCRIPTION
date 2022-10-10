@@ -1,12 +1,20 @@
 Package: fable.thrreg
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Threshold Regression Modelling Interface for `fable`
+Description: Allows threshold to be used in 
+    a tidy workflow with the modelling interface of 'fabletools'. 
 Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
+Authors@R: c(
+    person("Yangzhuoran Fin", "Yang", role = c("aut", "cre"), 
+           email = "yangyangzhuoran@gmail.com", 
+           comment = c(ORCID = "0000-0002-1232-8017", 
+                       "https://github.com/FinYang")),
+    person("Bonsoo", "Koo", role = "aut", comment = "https://github.com/bonsook"), 
+    person("Ze Yu", "Zhong", role = "ctb", comment = "https://github.com/zeyuz35"))
+Maintainer: Yangzhuoran Fin Yang <yangyangzhuoran@gmail.com>
 License: GPL (>= 3)
+URL: https://github.com/FinYang/fable.thrreg
+BugReports: https://github.com/FinYang/fable.thrreg/issues/
 Encoding: UTF-8
 LazyData: true
 Depends: 
@@ -22,6 +30,3 @@ Imports:
     tsibble,
     stats,
     magrittr
-Suggests: 
-    testthat (>= 3.0.0)
-Config/testthat/edition: 3
