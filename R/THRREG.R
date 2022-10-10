@@ -85,18 +85,18 @@ train_thrreg <- function(.data, specials, ...){
   )
 
 
-num_unique_ind <- rhs %>%
+  num_unique_ind <- rhs %>%
     map(function(x) {
       if("ind" %in% names(x)){
         x$xreg$expression
       }
-      }) %>%
+    }) %>%
     .[!sapply(.,is.null)] %>%
     unique() %>%
     length()
-if(num_unique_ind > 1) {
-  stop("The variables whose coefficients vary in different regimes need to be identical.")
-}
+  if(num_unique_ind > 1) {
+    stop("The variables whose coefficients vary in different regimes need to be identical.")
+  }
 
   if(is.numeric(unlist(gamma_env$id))){
     # reorder (multi_regime)
