@@ -1,0 +1,83 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# fable.thrreg
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of fable.thrreg is to extend `fable` package to fit threshold regression.
+
+## Installation
+
+You can install the development version of fable.thrreg like so:
+
+```{r, eval = FALSE}
+remotes::install_github("FinYang/fable.thrreg")
+```
+
+## Example
+
+This is a basic example which shows you how to fit a threshold regression.
+
+```{r, message=FALSE}
+library(fable.thrreg)
+
+library(tidyverse) 
+library(fable)
+library(tsibble)
+```
+
+```{r}
+# Simulate a time series
+threshold_process <- function(lag1){
+  if(abs(lag1) > 1) {
+    # Above threshold of 1
+    # Mean reverting 
+    # AR1 process with coeffcient 0.8
+    lag1 * 0.8 + rnorm(1)
+  } else {
+    # Below threshold of 1
+    # a unit root process
+    lag1 + rnorm(1)
+  }
+}
+set.seed(2222)
+time_span <- 2000
+y <- numeric(time_span)
+for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]])
+
+# Convert to tsibble
+df <- tsibble(y = y, idx = seq_along(y), index = idx)
+```
+
+```{r}
+
+# Fit the threshold regression
+fit <- df %>% 
+  model(thrreg = THRREG(y ~ offset(lag(y)) + lag(y)*ind(abs(lag(y)) >= gamma(1) )))
+# Getting estimates
+est <- tidy(fit)
+est
+
+# Estimated threshold value
+.gamma_1 <- est$estimate[est$term == ".gamma_1"] 
+# Plot
+autoplot(df, y) +
+  geom_hline(yintercept = c(-1, 1)) +
+  geom_hline(yintercept = c(-.gamma_1, .gamma_1), colour = "red")
+```
+
+
