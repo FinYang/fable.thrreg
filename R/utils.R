@@ -2,6 +2,14 @@ is_call_name <- function(x, name = NULL){
   is.call(x) && !is.null(name) && call_name(x) %in% name
 }
 
+has_call_name <- function(x, name = NULL){
+  find_leaf(x, exclude = name) %>%
+    sapply(is_call_name, name) %>%
+    any()
+}
+
+Arithmetic <- c("+", "-", "*", "/", "^", "%%", "%/%")
+
 quietly_squash <- function(x) quietly(squash)(x)$result
 
 # @param include include only these names as call
@@ -90,8 +98,9 @@ str_extract_perl <- function(string, pattern) {
 #' @param num number of closest to find
 #' @param exclude logical vector. Exclude these observations when finding closest
 #' @return logical vector
-closest <- function(x, value, num, exclude = rep(FALSE, length(x))) {
+closest <- function(x, value, num, exclude = logical(length(x))) {
   output <- logical(length(x))
+  stopifnot(length(value) == 1 || length(x) == length(value))
   dist <- x-value
 
   dist[is.na(dist)] <- Inf

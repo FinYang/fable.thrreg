@@ -154,7 +154,7 @@ train_thrreg <- function(.data, specials, ...){
 
 
 
-
+  parametric <- FALSE
   # Finding the gamma grids
   if(!kernel_est){
 
@@ -188,42 +188,69 @@ train_thrreg <- function(.data, specials, ...){
         # Single regime
         all_gamma_grids <- get_grid_single_gamma(ind_term, gamma_name = gamma_env$gamma)
       } else if(length(ind_term)>1) {
+        num_gamma_each_ind <- 1
         multi_regime <- TRUE
       }
 
     } else if(length(unlist(gamma_env$gamma)) > length(ind_term)){
-      # parametrix ploy 2
-      if(length(ind_term)>1) {
-        abort("Only one indicator function allowed when using parametric gamma.")
+      # parametric ploy 2
+      parametric <- TRUE
+
+      if(length(unlist(gamma_env$gamma)) > 2*length(ind_term)){
+        abort("Indicator function only support second order polynomial at most.")
       }
 
-      ind_single <- ind_term[[1]]
+
+
+      gamma_ind_pair <- lapply(ind_term, function(x) sapply(x$ind[names(x$ind) == "gamma"],getElement, "id"))
+      num_gamma_each_ind <- min(sapply(gamma_ind_pair, length))
+
+      # Ensures the gamma id in order
+      check_gamma_order(gamma_ind_pair)
+
+      for(i in 2:length(gamma_ind_pair)){
+        gamma_ind_pair[[i]] <- setdiff(gamma_ind_pair[[i]], gamma_ind_pair[[i-1]])
+      }
+      pair_idx <- numeric(length(unlist(gamma_env$gamma)))
+      for(i in seq_along(gamma_ind_pair)){
+        pair_idx[gamma_ind_pair[[i]]] <- i
+      }
 
       given_grids <- gamma_env$gamma_special %>%
         lapply(getElement, "grid")
       if(any(sapply(given_grids, is.null))) abort("You need to provide grid to search for gamma.")
       all_gamma_grids <- given_grids %>%
-        do.call(expand.grid, .) %>%
-        `colnames<-`(unique(unlist(gamma_env$gamma))) %>%
-        as_tibble() %>%
-        # dplyr::filter(.gamma_2 < 270 - 12 * .gamma_1) %>%
-        split(seq_len(nrow(.))) %>%
-        lapply(unlist)
+        `names<-`(paste0(".gamma_", names(.))) %>%
+        split(pair_idx) %>%
+        lapply(
+          do.call, what = expand.grid
+        ) %>%
+        lapply(function(x) lapply(asplit(x, 1), c))
 
-      # for test purpose
-      gamma_idx <- ind_single$ind$ind_expression %>%
-        map(function(x) find_leaf(x, exclude = "gamma") %>%
-              sapply(is_call_name, "gamma") %>%
-              any()) %>%
+      # for test
+      based_var <- ind_term %>%
+        map(function(x) x$ind$expression) %>%
+        map(function(x) {
+          find_leaf(x, include = c(">=", ">", "<=", "<", "&")) %>%
+            {.[sapply(., has_call_name, "gamma")]} %>%
+            map(function(x){
+              find_leaf(x, include = Arithmetic) %>%
+                {.[!sapply(., is_call_name, "gamma")]}
+            }
+            )
+        }) %>%
         unlist() %>%
-        which()
-      based_var <- ind_term[[1]]$ind$ind_expression[[gamma_idx]] %>%
-        replace_gamma_lang() %>%
-        break_interaction() %>%
-        map_chr(deparse) %>%
-        .[!grepl(".gamma", ., fixed = TRUE)] %>%
-        sym()
+        unique()
+      if(length(based_var)>1){
+        abort("Variable to base the threshold should be identical.")
+      }
+      based_var <- based_var[[1]]
+      if(length(ind_term)==1) {
+        all_gamma_grids <- all_gamma_grids[[1]]
 
+      } else {
+        multi_regime <- TRUE
+      }
     }
   }
 
@@ -236,7 +263,7 @@ train_thrreg <- function(.data, specials, ...){
     # find term with only one gamma
     temp_rhs_idx <- lapply(rhs_terms, find_leaf) %>%
       sapply(function(x) sum(sapply(x, function(y) grepl("\\.gamma", deparse(y))))) %>%
-      `<=`(1)
+      `<=`(num_gamma_each_ind)
     temp_rhs <- rhs_terms[temp_rhs_idx]
     fm_top <- if(!is.null(one_term)){
       expr(I(!!sym(resp) - !!one_expr) ~ !!reduce(temp_rhs, function(.x, .y) call2("+", .x, .y)))
@@ -276,6 +303,11 @@ train_thrreg <- function(.data, specials, ...){
         if(is.null(weights)) weights <- rep(1, nrow(eval(data)))
         temp_env <- new.env()
         purrr::walk2(names(gammas), gammas,assign, envir = temp_env)
+
+        # browser()
+        # assign(".gamma_1", -2, temp_env)
+        # assign(".gamma_2", 8.2, temp_env)
+
         temp <- ind_term[[1]]$ind$expression %>%
           replace_gamma_lang() %>%
           eval_tidy( data = eval(data)[eval(weights)>0,], env = temp_env)
@@ -298,7 +330,7 @@ train_thrreg <- function(.data, specials, ...){
         between(-gammas[[1]]/gammas[[2]], ra[[1]], ra[[2]])
       }
 
-      if(test2()) return(Inf)
+      # if(test2()) return(Inf)
     }
 
 
@@ -491,42 +523,81 @@ train_thrreg <- function(.data, specials, ...){
 
       term_com <- term_com[[1]]
 
+      if(!parametric) {
 
-      temp_weights_lgl <- rep(TRUE, nrow(model_df))
-      temp_env <- new.env()
-      for(i in seq_along(gamma_env$gamma)){
+        temp_weights_lgl <- rep(TRUE, nrow(model_df))
+        temp_env <- new.env()
+        for(i in seq_along(gamma_env$gamma)){
 
-        all_gamma_grids <- get_grid_single_gamma(ind_term[i], gamma_name = gamma_env$gamma[i],
-                                                 data_eval = model_df,
-                                                 weights_lgl = temp_weights_lgl)
-        gamma_in_fm <- fm_top %>%
-          find_leaf() %>%
-          sapply(deparse) %>%
-          intersect(unlist(gamma_env$gamma))
-        all_gamma_grids <- lapply(all_gamma_grids, function(x) {
-          out <- rep(x, length(gamma_in_fm))
-          names(out) <- gamma_in_fm
-          out
-        })
-        ssr <- all_gamma_grids %>% sapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
-        # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
-        .gamma <- unique(all_gamma_grids[[which.min(ssr)]])
+          all_gamma_grids <- get_grid_single_gamma(ind_term[i], gamma_name = gamma_env$gamma[i],
+                                                   data_eval = model_df,
+                                                   weights_lgl = temp_weights_lgl)
+          gamma_in_fm <- fm_top %>%
+            find_leaf() %>%
+            sapply(deparse) %>%
+            intersect(unlist(gamma_env$gamma))
+          all_gamma_grids <- lapply(all_gamma_grids, function(x) {
+            out <- rep(x, length(gamma_in_fm))
+            names(out) <- gamma_in_fm
+            out
+          })
+          ssr <- all_gamma_grids %>% sapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
+          # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
+          .gamma <- unique(all_gamma_grids[[which.min(ssr)]])
 
-        assign(gamma_env$gamma[[i]], .gamma, envir = temp_env)
+          assign(gamma_env$gamma[[i]], .gamma, envir = temp_env)
 
-        temp_weights_lgl <- term_com %>%
-          eval_tidy(data = model_df) %>%
-          {!closest(., .gamma, k+length(gamma_env$gamma), exclude = !temp_weights_lgl)} %>%
-          `&`(temp_weights_lgl)
+          temp_weights_lgl <- term_com %>%
+            eval_tidy(data = model_df) %>%
+            {!closest(., .gamma, k+length(gamma_env$gamma), exclude = !temp_weights_lgl)} %>%
+            `&`(temp_weights_lgl)
 
 
+        }
+        .gamma <- unlist(as.list(temp_env, all.names = TRUE))
+
+        .gamma <- sort(.gamma, decreasing = TRUE)
+        names(.gamma) <- sort(unlist(gamma_env$gamma))
+
+        path <- NULL
+      } else {
+        #parametric
+
+        temp_weights_lgl <- rep(TRUE, nrow(model_df))
+        temp_env <- new.env()
+        for(i in seq_along(gamma_ind_pair)){
+          gamma_grids <- all_gamma_grids[[i]]
+
+          gamma_in_fm <- fm_top %>%
+            find_leaf() %>%
+            sapply(deparse) %>%
+            intersect(unlist(gamma_env$gamma))
+          gamma_grids <- lapply(gamma_grids, function(x) {
+            names(x) <- gamma_in_fm
+            x
+          })
+          ssr <- gamma_grids %>% sapply(get_ssr, fm_top, data = model_df, weights = as.numeric(temp_weights_lgl))
+          # path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
+          .gamma <- unique(gamma_grids[[which.min(ssr)]])
+
+          walk2(paste0(".gamma_", gamma_ind_pair[[i]]), .gamma, assign, envir = temp_env)
+
+
+
+
+          temp_weights_lgl <- term_com %>%
+            eval_tidy(data = model_df) %>%
+            closest(.gamma[[1]] + .gamma[[2]] * eval_tidy(based_var, data = model_df), ## assume quadratic
+                   ( k+length(gamma_env$gamma))*10, exclude = !temp_weights_lgl) %>%
+            `!`() %>%
+            `&`(temp_weights_lgl)
+
+
+        }
+        .gamma <- unlist(as.list(temp_env, all.names = TRUE))
+
+        path <- NULL
       }
-      .gamma <- unlist(as.list(temp_env, all.names = TRUE))
-
-      .gamma <- sort(.gamma, decreasing = TRUE)
-      names(.gamma) <- sort(unlist(gamma_env$gamma))
-
-      path <- NULL
     } else {
 
       ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm)

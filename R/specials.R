@@ -40,7 +40,7 @@ specials_thrreg <- new_specials(
     out <- map(out, eval_tidy, data = self$data, env = self$specials)
     out$expression <- x
     out$ind_expression <- find_leaf(x, include = c("<", "<=", ">", ">=", "&")) %>%
-      {.[!sapply(., function(y) is_call_name(y, "gamma"))]}
+      {.[!sapply(., function(y) has_call_name(y, "gamma"))]}
 
     out
 
