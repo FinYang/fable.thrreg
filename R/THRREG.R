@@ -24,7 +24,7 @@ train_thrreg <- function(.data, specials, ...){
     gamma_env$id <- unique(c(gamma_env$id, id))
     gamma_env$gamma[[id]] <- g
     sym(g)
-  }, env = gamma_fun_env)
+  }, envir = gamma_fun_env)
 
 
   eval_gamma_in_string <- function(string){
@@ -383,7 +383,7 @@ train_thrreg <- function(.data, specials, ...){
     )
 
 
-    which_min <- pbapply::pblapply(seq_along(all_gamma_grids), function(i){
+    which_min <- lapply(seq_along(all_gamma_grids), function(i){
       # which_min <- lapply(seq_along(gamma_grids), function(i){
       i <- enexpr(i)
       eval(expr(sapply(
@@ -410,7 +410,6 @@ train_thrreg <- function(.data, specials, ...){
       mutate(.gamma=gamma_col)
 
 
-    pb <- lazybar::lazyProgressBar(kernel$max_iter)
     for(iter in seq_len(kernel$max_iter)){
       # !is.na(model_df_k$.gamma)
       # 2
@@ -483,7 +482,6 @@ train_thrreg <- function(.data, specials, ...){
         select(-.gamma) %>%
         dplyr::left_join(distinct(gamma_path[[iter]]), by = as_string(kernel$var_name))
 
-      pb$tick()$print()
       if(iter>1){
         if(norm(coef_path[[iter]] - coef_path[[iter-1]], "2")< 1){
           break
@@ -600,7 +598,7 @@ train_thrreg <- function(.data, specials, ...){
       }
     } else {
 
-      ssr <- all_gamma_grids %>% pbapply::pbsapply(get_ssr, fm)
+      ssr <- all_gamma_grids %>% sapply(get_ssr, fm)
       path <- all_gamma_grids %>% bind_rows() %>% mutate(ssr)
       .gamma <- all_gamma_grids[[which.min(ssr)]]
     }

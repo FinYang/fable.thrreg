@@ -29,4 +29,5 @@ Imports:
     tibble,
     tsibble,
     stats,
-    magrittr
+    magrittr,
+    stringr

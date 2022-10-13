@@ -125,7 +125,7 @@ break_interaction <- function(x, no_base = c("+", "*", "(")){
     x,
     .f = function(.x, ...) {
       .x <- flatten2(.x)
-      fabletools:::merge_named_list(.x[[1]], .x[[2]])},
+      merge_named_list(.x[[1]], .x[[2]])},
     .g = function(.x){
       map(as.list(get_expr(.x))[-1], expr)
     },
@@ -161,7 +161,7 @@ inside_ind <- function(ind){
   }
   inner_ls <- recur_list(inner)
 
-  if(depth(inner_ls)>4 || (depth(iner_ls)>2 && !identical(inner_ls[[1]], sym("&"))))
+  if(depth(inner_ls)>4 || (depth(inner_ls)>2 && !identical(inner_ls[[1]], sym("&"))))
     stop("`ind` only support at most one `&` operation.")
   inner_ls[[2]] %>%
     lapply(function(x) `attr<-`(x[[2]], "compare", x[[1]]))

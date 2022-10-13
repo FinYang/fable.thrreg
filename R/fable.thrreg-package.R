@@ -2,6 +2,8 @@
 "_PACKAGE"
 
 ## usethis namespace: start
+#' @importFrom dplyr any_of
+#' @importFrom dplyr between
 #' @importFrom dplyr bind_cols
 #' @importFrom dplyr bind_rows
 #' @importFrom dplyr case_when
@@ -14,10 +16,11 @@
 #' @importFrom purrr map
 #' @importFrom purrr quietly
 #' @importFrom purrr reduce
+#' @importFrom purrr walk2
+#' @importFrom rlang :=
 #' @importFrom rlang !!
 #' @importFrom rlang !!!
 #' @importFrom rlang %||%
-#' @importFrom rlang :=
 #' @importFrom rlang abort
 #' @importFrom rlang as_string
 #' @importFrom rlang call_name
@@ -39,6 +42,7 @@
 #' @importFrom stats fitted
 #' @importFrom stats lm
 #' @importFrom stats model.frame
+#' @importFrom stats na.omit
 #' @importFrom stats resid
 #' @importFrom stats residuals
 #' @importFrom tibble as_tibble
@@ -48,3 +52,6 @@
 ## usethis namespace: end
 #' @import fabletools
 NULL
+
+
+utils::globalVariables(c(".", "self"))
