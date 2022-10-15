@@ -30,7 +30,7 @@ find_leaf <- function(arg, branch_name = NULL, exclude = NULL, include = NULL) {
   }
 
   if(!is.null(branch_name)){
-    fabletools::traverse(
+    traverse(
       arg, .h=function(x) if(!is_call_name(x, branch_name)) pick_leaf(x),
       base = function(x) !is_call_name(x, branch_name)
     )
@@ -39,7 +39,7 @@ find_leaf <- function(arg, branch_name = NULL, exclude = NULL, include = NULL) {
     )
   } else if(!is.null(include)){
     include <- setdiff(include, exclude)
-    fabletools::traverse(
+    traverse(
       arg, .h=function(x) if(!is_call(x) || (!call_name(x) %in% include)) pick_leaf(x),
       base = function(x) if(is.call(x) && (call_name(x) %in% include)) {pick_call(x[[1]]); return(FALSE)} else TRUE
     )
@@ -48,7 +48,7 @@ find_leaf <- function(arg, branch_name = NULL, exclude = NULL, include = NULL) {
         unique()
     )
   } else {
-    fabletools::traverse(
+    traverse(
       arg, .h=function(x) if(!is_call(x) || is_call_name(x, exclude)) pick_leaf(x),
       base = function(x) if(is.call(x) && (!call_name(x) %in% exclude)) {pick_call(x[[1]]); return(FALSE)} else TRUE
     )

@@ -10,7 +10,11 @@ Authors@R: c(
            comment = c(ORCID = "0000-0002-1232-8017", 
                        "https://github.com/FinYang")),
     person("Bonsoo", "Koo", role = "aut", comment = "https://github.com/bonsook"), 
-    person("Ze Yu", "Zhong", role = "ctb", comment = "https://github.com/zeyuz35"))
+    person("Ze Yu", "Zhong", role = "ctb", comment = "https://github.com/zeyuz35"),
+    person(given = "Mitchell",
+             family = "O'Hara-Wild",
+             role = "ctb")
+    )
 Maintainer: Yangzhuoran Fin Yang <yangyangzhuoran@gmail.com>
 License: GPL (>= 3)
 URL: https://github.com/FinYang/fable.thrreg

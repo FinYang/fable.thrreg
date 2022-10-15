@@ -27,6 +27,7 @@ Authors:
 Other contributors:
 \itemize{
   \item Ze Yu Zhong (https://github.com/zeyuz35) [contributor]
+  \item Mitchell O'Hara-Wild [contributor]
 }
 
 }
