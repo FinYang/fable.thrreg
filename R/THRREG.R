@@ -150,7 +150,11 @@ train_thrreg <- function(.data, specials, ...){
   n <- nrow(model_data)
   # k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp)))+2
   # k <- length(rhs)
-  k <- ncol(select(rhs[[which(sapply(rhs, length)==1)]]$xreg$xregs, !any_of(resp))) + length(rhs) + 1
+  if(length(tem <- which(sapply(rhs, length)==1)) == 0) {
+    k <- length(rhs) + 1
+  } else {
+    k <- ncol(select(rhs[[tem]]$xreg$xregs, !any_of(resp))) + length(rhs) + 1
+  }
 
 
 
@@ -586,7 +590,7 @@ train_thrreg <- function(.data, specials, ...){
           temp_weights_lgl <- term_com %>%
             eval_tidy(data = model_df) %>%
             closest(.gamma[[1]] + .gamma[[2]] * eval_tidy(based_var, data = model_df), ## assume quadratic
-                   ( k+length(gamma_env$gamma))*10, exclude = !temp_weights_lgl) %>%
+                    ( k+length(gamma_env$gamma))*10, exclude = !temp_weights_lgl) %>%
             `!`() %>%
             `&`(temp_weights_lgl)
 

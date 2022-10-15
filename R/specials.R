@@ -96,6 +96,7 @@ specials_thrreg <- new_specials(
 
     xreg<- map(call_xreg, function(xcall) {
       bare_xreg <- !sapply(xcall, function(x) all(sapply(x, function(y) is_call_name(y,"ind"))))
+      if(all(!bare_xreg)) return(NULL)
       xcall[["xreg"]] <- expr(xreg(!!!xcall[[which(bare_xreg)]]))
       xcall[[which(bare_xreg)]] <- NULL
       xcall <- unlist(xcall)
