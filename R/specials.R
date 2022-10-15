@@ -30,16 +30,16 @@ specials_thrreg <- new_specials(
     list(data = data,
          expression = arg)
   },
-  ind = function(x){
-    x <- enexpr(x)
-    out <- find_leaf(x, exclude = "gamma")
+  ind = function(expression){
+    expression <- enexpr(expression)
+    out <- find_leaf(expression, exclude = "gamma")
     bare_xreg <- !sapply(out, is_call_name, names(specials_thrreg))
     out$xreg <- expr(xreg(!!!out[which(bare_xreg)]))
     out[which(bare_xreg)] <- NULL
     names(out)[names(out)==""] <- sapply(out[names(out)==""], call_name)
     out <- map(out, eval_tidy, data = self$data, env = self$specials)
-    out$expression <- x
-    out$ind_expression <- find_leaf(x, include = c("<", "<=", ">", ">=", "&")) %>%
+    out$expression <- expression
+    out$ind_expression <- find_leaf(expression, include = c("<", "<=", ">", ">=", "&")) %>%
       {.[!sapply(., function(y) has_call_name(y, "gamma"))]}
 
     out

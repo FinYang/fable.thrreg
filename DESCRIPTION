@@ -35,3 +35,5 @@ Imports:
     stats,
     magrittr,
     stringr
+Suggests: 
+    ggplot2

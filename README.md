@@ -73,8 +73,8 @@ est
 .gamma_1 <- est$estimate[est$term == ".gamma_1"] 
 # Plot
 autoplot(df, y) +
-  geom_hline(yintercept = c(-1, 1)) +
-  geom_hline(yintercept = c(-.gamma_1, .gamma_1), colour = "red")
+  ggplot2::geom_hline(yintercept = c(-1, 1)) +
+  ggplot2::geom_hline(yintercept = c(-.gamma_1, .gamma_1), colour = "red")
 ```
 
 <img src="man/figures/README-unnamed-chunk-5-1.png" width="100%" />
