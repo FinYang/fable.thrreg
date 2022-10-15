@@ -18,7 +18,8 @@ train_thrreg <- function(.data, specials, ...){
   assign("gamma", function(id = var, var = NULL, ...){
     var <- enexpr(var)
     if(is.null(id)) {
-      id <- max(unlist(gamma_env$id[sapply(gamma_env$id, is.numeric)]) %||% 0, na.rm = TRUE) + 1
+      if(length(gamma_env$id)>0) abort("When there are more than one gamma, a numeric id needs to be given.")
+      id <- max(unlist(gamma_env$id[vapply(gamma_env$id, is.numeric, logical())]) %||% 0, na.rm = TRUE) + 1
     }
     g <- paste0(".gamma_", id)
     gamma_env$id <- unique(c(gamma_env$id, id))
@@ -98,9 +99,12 @@ train_thrreg <- function(.data, specials, ...){
     stop("The variables whose coefficients vary in different regimes need to be identical.")
   }
 
+
   if(is.numeric(unlist(gamma_env$id))){
     # reorder (multi_regime)
-    temp_idx <- order(sapply(ind_term, function(ind_term) mean(sapply(ind_term$ind[names(ind_term$ind) == "gamma"], getElement, "id"))))
+    temp_idx <- order(sapply(ind_term, function(ind_t) {
+      mean(unlist(lapply(ind_t$ind[names(ind_t$ind) == "gamma"], getElement, "id")) %||% NA)
+      }))
     ind_term[temp_idx] <- ind_term[order(temp_idx)]
     rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][temp_idx] <- rhs_terms[sapply(rhs, function(x) "ind" %in% names(x))][order(temp_idx)]
     gamma_env$gamma[temp_idx] <- gamma_env$gamma[order(temp_idx)]
