@@ -16,6 +16,9 @@ knitr::opts_chunk$set(
 # fable.thrreg
 
 <!-- badges: start -->
+[![CRAN status](https://www.r-pkg.org/badges/version/fable.thrreg)](https://CRAN.R-project.org/package=fable.thrreg)
+[![R-CMD-check](https://github.com/FinYang/fable.thrreg/workflows/R-CMD-check/badge.svg)](https://github.com/FinYang/fable.thrreg/actions)
+[![license](https://img.shields.io/badge/license-GPL--3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 <!-- badges: end -->
 
 The goal of fable.thrreg is to extend `fable` package to fit threshold regression.
