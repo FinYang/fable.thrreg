@@ -53,7 +53,7 @@ one(arg)
 }
 
 \tabular{ll}{
-  \code{arg} \tab Regressor in the regression whose coefficient is contrained to be 1 \cr
+  \code{arg} \tab Regressor in the regression whose coefficient is constrained to be 1 \cr
 }
 }
 
@@ -62,7 +62,7 @@ one(arg)
 the parameters that define the threshold location when the regimes depend on
 other variables.
 \code{ind} is used in conjunction with \code{gamma} to specify the indicator function
-that seperates different regimes.
+that separates different regimes.
 \preformatted{
 gamma(id = NULL, var = NULL, grid = NULL)
 }
@@ -70,7 +70,7 @@ gamma(id = NULL, var = NULL, grid = NULL)
   \code{id} \tab The identifier of parameter \eqn{\gamma}, namely the subscript.
   In the case of multiple constant regimes, this needs to be a numeric value
   indicating the relative position of the threshold ranked from large to small.
-  For exmaple, threshold \code{gamma(1)} is above \code{gamma(2)} and so on.
+  For example, threshold \code{gamma(1)} is above \code{gamma(2)} and so on.
   In the case of second order polynomial threshold, this needs to be a numeric value
   indicating the order of which the grid search is conducted, and the intercept in the
   polynomial should has a smaller id than the paired slope.

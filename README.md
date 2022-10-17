@@ -87,7 +87,7 @@ est
 
 We find $\hat{\delta}_1 = -0.22$ and $\hat{\gamma}_1 = 0.979$.
 
-We can also try fittinig the unconstraint model $$
+We can also try fitting the unconstrained model $$
 y_{t} = \hat{\delta}_0y_{t-1} +\hat{\delta}_1 y_{t-1} I(|y_{t-1}| >\hat{\gamma}_1) + \epsilon_t.
 $$
 
