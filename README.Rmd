@@ -53,22 +53,23 @@ where $\delta_0 = 1$, $\delta_1 = -0.2$ and $\gamma_1 = 1$.
 
 ```{r}
 # Simulate a time series
-threshold_process <- function(lag1){
+threshold_process <- function(lag1, error){
   if(abs(lag1) > 1) {
     # Above threshold of 1
     # Mean reverting 
     # AR1 process with coeffcient 0.8
-    lag1 * 0.8 + rnorm(1)
+    lag1 * 0.8 + error
   } else {
     # Below threshold of 1
     # a unit root process
-    lag1 + rnorm(1)
+    lag1 + error
   }
 }
 set.seed(2222)
 time_span <- 2000
 y <- numeric(time_span)
-for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]])
+errors <- rnorm(time_span)
+for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]], errors[[i]])
 
 # Convert to tsibble
 df <- tsibble(y = y, idx = seq_along(y), index = idx)

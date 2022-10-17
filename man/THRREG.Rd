@@ -103,23 +103,25 @@ Interactions and other functionality behaves similarly to [stats::lm()].
 }
 
 \examples{
+\dontrun{
 # Simulate a time series
-threshold_process <- function(lag1){
+threshold_process <- function(lag1, error){
   if(abs(lag1) > 1) {
     # Above threshold of 1
     # Mean reverting
     # AR1 process with coeffcient 0.8
-    lag1 * 0.8 + rnorm(1)
+    lag1 * 0.8 + error
   } else {
     # Below threshold of 1
     # a unit root process
-    lag1 + rnorm(1)
+    lag1 + error
   }
 }
 set.seed(2222)
 time_span <- 2000
 y <- numeric(time_span)
-for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]])
+errors <- rnorm(time_span)
+for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]], errors[[i]])
 
 # Convert to tsibble
 library(tsibble)
@@ -140,5 +142,6 @@ if(requireNamespace("ggplot2")){
 autoplot(df, y) +
   ggplot2::geom_hline(yintercept = c(-1, 1)) +
   ggplot2::geom_hline(yintercept = c(-.gamma_1, .gamma_1), colour = "red")
+}
 }
 }

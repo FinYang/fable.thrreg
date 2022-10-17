@@ -40,22 +40,23 @@ $$ where $\delta_0 = 1$, $\delta_1 = -0.2$ and $\gamma_1 = 1$.
 
 ``` r
 # Simulate a time series
-threshold_process <- function(lag1){
+threshold_process <- function(lag1, error){
   if(abs(lag1) > 1) {
     # Above threshold of 1
     # Mean reverting 
     # AR1 process with coeffcient 0.8
-    lag1 * 0.8 + rnorm(1)
+    lag1 * 0.8 + error
   } else {
     # Below threshold of 1
     # a unit root process
-    lag1 + rnorm(1)
+    lag1 + error
   }
 }
 set.seed(2222)
 time_span <- 2000
 y <- numeric(time_span)
-for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]])
+errors <- rnorm(time_span)
+for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]], errors[[i]])
 
 # Convert to tsibble
 df <- tsibble(y = y, idx = seq_along(y), index = idx)
@@ -75,9 +76,9 @@ est
 #> # A tibble: 3 × 6
 #>   .model term                                estimate std.e…¹ statis…²   p.value
 #>   <chr>  <chr>                                  <dbl>   <dbl>    <dbl>     <dbl>
-#> 1 thrreg (Intercept)                         -0.00136  0.0227  -0.0602  9.52e- 1
-#> 2 thrreg I(lag(y) * (abs(lag(y)) >= 0.97949… -0.220    0.0141 -15.6     4.18e-52
-#> 3 thrreg .gamma_1                             0.979   NA       NA      NA       
+#> 1 thrreg (Intercept)                         -3.86e-4  0.0227  -0.0170  9.86e- 1
+#> 2 thrreg I(lag(y) * (abs(lag(y)) >= 0.97949… -2.20e-1  0.0141 -15.6     8.02e-52
+#> 3 thrreg .gamma_1                             9.79e-1 NA       NA      NA       
 #> # … with abbreviated variable names ¹​std.error, ²​statistic
 
 # Estimated threshold value
@@ -98,20 +99,20 @@ fit <- df %>%
 est <- tidy(fit)
 est
 #> # A tibble: 4 × 6
-#>   .model term                                 estimate std.e…¹ stati…²   p.value
-#>   <chr>  <chr>                                   <dbl>   <dbl>   <dbl>     <dbl>
-#> 1 thrreg (Intercept)                          -6.60e-4  0.0227 -0.0291  9.77e- 1
-#> 2 thrreg I(lag(y) * (abs(lag(y)) >= 1.024210… -1.80e-1  0.0585 -3.07    2.16e- 3
-#> 3 thrreg lag(y)                                9.59e-1  0.0568 16.9     6.61e-60
-#> 4 thrreg .gamma_1                              1.02e+0 NA      NA      NA       
+#>   .model term                                estimate std.e…¹ statis…²   p.value
+#>   <chr>  <chr>                                  <dbl>   <dbl>    <dbl>     <dbl>
+#> 1 thrreg (Intercept)                          1.39e-4  0.0227  0.00612  9.95e- 1
+#> 2 thrreg I(lag(y) * (abs(lag(y)) >= 1.00949… -1.86e-1  0.0600 -3.10     1.98e- 3
+#> 3 thrreg lag(y)                               9.66e-1  0.0583 16.6      7.25e-58
+#> 4 thrreg .gamma_1                             1.01e+0 NA      NA       NA       
 #> # … with abbreviated variable names ¹​std.error, ²​statistic
 
 # Estimated threshold value
 .gamma_1_unconstrained <- est$estimate[est$term == ".gamma_1"]
 ```
 
-We find $\hat{\delta}_0 = 0.959$, $\hat{\delta}_1 = -0.18$ and
-$\hat{\gamma}_1 = 1.02$.
+We find $\hat{\delta}_0 = 0.966$, $\hat{\delta}_1 = -0.186$ and
+$\hat{\gamma}_1 = 1.01$.
 
 ``` r
 # Plot
