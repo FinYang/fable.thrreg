@@ -30,6 +30,14 @@ library(fable)
 library(tsibble)
 ```
 
+### Simulation
+
+We simulate from the following two regimes threshold model:
+
+$$
+y_{t} = \delta_0y_{t-1} + \delta_1 y_{t-1} I(|y_{t-1}| >\gamma_1) + \epsilon_t, \ \epsilon_t \sim N(0, 1)
+$$ where $\delta_0 = 1$, $\delta_1 = -0.2$ and $\gamma_1 = 1$.
+
 ``` r
 # Simulate a time series
 threshold_process <- function(lag1){
@@ -53,11 +61,14 @@ for(i in 2:time_span) y[[i]] <- threshold_process(y[[i-1]])
 df <- tsibble(y = y, idx = seq_along(y), index = idx)
 ```
 
-``` r
+We then fit the model using the package to estimate $$
+y_{t} = y_{t-1} +\hat{\delta}_1 y_{t-1} I(|y_{t-1}| >\hat{\gamma}_1) + \epsilon_t,
+$$ here we constraint the coefficient of $y_{t-1}$ to be 1.
 
+``` r
 # Fit the threshold regression
 fit <- df %>% 
-  model(thrreg = THRREG(y ~ offset(lag(y)) + lag(y)*ind(abs(lag(y)) >= gamma(1) )))
+  model(thrreg = THRREG(y ~ one(lag(y)) + lag(y)*ind(abs(lag(y)) >= gamma(1))))
 # Getting estimates
 est <- tidy(fit)
 est
@@ -70,11 +81,47 @@ est
 #> # … with abbreviated variable names ¹​std.error, ²​statistic
 
 # Estimated threshold value
-.gamma_1 <- est$estimate[est$term == ".gamma_1"] 
-# Plot
-autoplot(df, y) +
-  ggplot2::geom_hline(yintercept = c(-1, 1)) +
-  ggplot2::geom_hline(yintercept = c(-.gamma_1, .gamma_1), colour = "red")
+.gamma_1_constrained <- est$estimate[est$term == ".gamma_1"]
 ```
 
-<img src="man/figures/README-unnamed-chunk-5-1.png" width="100%" />
+We find $\hat{\delta}_1 = -0.22$ and $\hat{\gamma}_1 = 0.979$.
+
+We can also try fittinig the unconstraint model $$
+y_{t} = \hat{\delta}_0y_{t-1} +\hat{\delta}_1 y_{t-1} I(|y_{t-1}| >\hat{\gamma}_1) + \epsilon_t.
+$$
+
+``` r
+# Fit the threshold regression
+fit <- df %>% 
+  model(thrreg = THRREG(y ~ lag(y) + lag(y)*ind(abs(lag(y)) >= gamma(1))))
+# Getting estimates
+est <- tidy(fit)
+est
+#> # A tibble: 4 × 6
+#>   .model term                                 estimate std.e…¹ stati…²   p.value
+#>   <chr>  <chr>                                   <dbl>   <dbl>   <dbl>     <dbl>
+#> 1 thrreg (Intercept)                          -6.60e-4  0.0227 -0.0291  9.77e- 1
+#> 2 thrreg I(lag(y) * (abs(lag(y)) >= 1.024210… -1.80e-1  0.0585 -3.07    2.16e- 3
+#> 3 thrreg lag(y)                                9.59e-1  0.0568 16.9     6.61e-60
+#> 4 thrreg .gamma_1                              1.02e+0 NA      NA      NA       
+#> # … with abbreviated variable names ¹​std.error, ²​statistic
+
+# Estimated threshold value
+.gamma_1_unconstrained <- est$estimate[est$term == ".gamma_1"]
+```
+
+We find $\hat{\delta}_0 = 0.959$, $\hat{\delta}_1 = -0.18$ and
+$\hat{\gamma}_1 = 1.02$.
+
+``` r
+# Plot
+autoplot(df, y) +
+  ggplot2::geom_hline(mapping = aes(yintercept = -1, colour = "Real")) +
+  ggplot2::geom_hline(mapping = aes(yintercept = 1, colour = "Real")) +
+  ggplot2::geom_hline(mapping = aes(yintercept = -.gamma_1_constrained, colour = "Constrained")) + 
+  ggplot2::geom_hline(mapping = aes(yintercept =  .gamma_1_constrained, colour = "Constrained")) + 
+  ggplot2::geom_hline(mapping = aes(yintercept =-.gamma_1_unconstrained, colour = "Unconstrained")) +
+  ggplot2::geom_hline(mapping = aes(yintercept =.gamma_1_unconstrained, colour = "Unconstrained"))
+```
+
+<img src="man/figures/README-plot-1.png" width="100%" />
