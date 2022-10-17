@@ -1,7 +1,7 @@
 Package: fable.thrreg
 Type: Package
 Title: Threshold Regression Modelling Interface for `fable`
-Description: Allows threshold to be used in 
+Description: Allows threshold regression to be used in 
     a tidy workflow with the modelling interface of 'fabletools'. 
 Version: 0.1.0
 Authors@R: c(

@@ -1,3 +1,5 @@
+This is the first submission of the package.
+
 ## Test environments
 * local macOS 12.6 (Apple M1 Pro) install, R 4.2.1
 * maxOS-latest (release) x86_64-apple-darwin17.0 (64-bit) (GitHub actions)
@@ -8,9 +10,9 @@
 *	Windows Server 2022, R-devel, 64 bit (on Rhub)
 * Ubuntu Linux 20.04.1 LTS, R-release, GCC (on Rhub)
 * Fedora Linux, R-devel, clang, gfortran (on Rhub)
+* Debian Linux, R-devel, GCC ASAN/UBSAN (on Rhub)
 * R Under development (unstable) (2022-10-11 r83083 ucrt) x86_64-w64-mingw32 (64-bit) (win-builder)
 * R version 4.2.1 (2022-06-23 ucrt) x86_64-w64-mingw32 (64-bit) (win-builder)
-
 
 ## R CMD check results
 
@@ -34,4 +36,4 @@ Cannot manage dependencies used in check. The check is ok on other platforms. Ca
 
 There are currently no downstream dependencies for this package.
 
-This is new submission of the package.
+

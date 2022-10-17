@@ -6,7 +6,7 @@
 \alias{fable.thrreg-package}
 \title{fable.thrreg: Threshold Regression Modelling Interface for `fable`}
 \description{
-Allows threshold to be used in a tidy workflow with the modelling interface of 'fabletools'.
+Allows threshold regression to be used in a tidy workflow with the modelling interface of 'fabletools'.
 }
 \seealso{
 Useful links:
